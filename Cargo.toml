@@ -1,0 +1,37 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/palisade-core",
+    "crates/palisade-redis",
+    "crates/palisade-proto",
+    "crates/palisade-server",
+    "crates/palisade-client",
+    "crates/palisade-testing",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://example.com/palisade"
+authors = ["Palisade Contributors"]
+
+[workspace.dependencies]
+palisade-core = { path = "crates/palisade-core" }
+palisade-redis = { path = "crates/palisade-redis" }
+palisade-proto = { path = "crates/palisade-proto" }
+thiserror = "2"
+uuid = { version = "1", features = ["v7"] }
+tokio = { version = "1", features = ["full"] }
+redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
+async-trait = "0.1"
+metrics = "0.24"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

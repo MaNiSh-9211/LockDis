@@ -1,0 +1,14 @@
+[package]
+name = "palisade-core"
+description = "Backend-neutral types, traits, and fencing primitives for Palisade distributed locks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+uuid.workspace = true
+async-trait.workspace = true
