@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use redis::Script;
 use redis::aio::ConnectionManager;
+use tokio::sync::watch;
 
 use palisade_core::{Error, FencingToken, LockHandle, LockManager, LockOptions, OwnerId, Result};
 
@@ -21,6 +22,15 @@ use crate::scripts;
 
 /// Poll cadence while waiting for a contended lock.
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+/// The watchdog renews every `RENEWAL_DIVISOR`-th of the lease; two renewal
+/// opportunities must fail before a normal TTL boundary is at risk.
+const RENEWAL_DIVISOR: u32 = 3;
+
+/// Transient (backend) renewal errors tolerated before declaring the lease
+/// lost. A definitive not-owner answer poisons immediately — there is
+/// nothing transient about losing ownership.
+const MAX_CONSECUTIVE_RENEW_FAILURES: u32 = 2;
 
 /// Fence counters live `FENCE_TTL_MULTIPLIER ×` longer than the lease so a
 /// counter never expires while its lock could still be held.
@@ -33,6 +43,7 @@ const FENCE_TTL_MULTIPLIER: u32 = 10;
 pub struct RedisLockManager {
     conn: ConnectionManager,
     default_ttl: Duration,
+    watchdog_default: bool,
     acquire_script: Script,
     release_script: Script,
     extend_script: Script,
@@ -51,6 +62,7 @@ impl RedisLockManager {
         Ok(Self {
             conn,
             default_ttl: config.default_ttl(),
+            watchdog_default: config.watchdog(),
             acquire_script: Script::new(scripts::ACQUIRE),
             release_script: Script::new(scripts::RELEASE),
             extend_script: Script::new(scripts::EXTEND),
@@ -59,13 +71,8 @@ impl RedisLockManager {
 
     /// Attempts immediate acquisition using the backend's default lease.
     pub async fn try_lock(&self, key: &str) -> Result<RedisLockHandle> {
-        self.try_lock_with(
-            key,
-            &LockOptions {
-                ttl: self.default_ttl,
-            },
-        )
-        .await
+        self.try_lock_with(key, &LockOptions::default().with_ttl(self.default_ttl))
+            .await
     }
 
     /// Attempts immediate acquisition with explicit options.
@@ -96,19 +103,24 @@ impl RedisLockManager {
         match status {
             1 | 2 => {
                 metrics::counter!("palisade_grants_total").increment(1);
-                Ok(RedisLockHandle {
-                    shared: Arc::new(HandleShared {
-                        conn: self.conn.clone(),
-                        release_script: self.release_script.clone(),
-                        extend_script: self.extend_script.clone(),
-                        key: key.to_owned(),
-                        fence_key,
-                        token,
-                        owner,
-                        fence: FencingToken::new(fence as u64),
-                        released: AtomicBool::new(false),
-                    }),
-                })
+                let shared = Arc::new(HandleShared {
+                    conn: self.conn.clone(),
+                    release_script: self.release_script.clone(),
+                    extend_script: self.extend_script.clone(),
+                    key: key.to_owned(),
+                    fence_key,
+                    token,
+                    owner,
+                    fence: FencingToken::new(fence as u64),
+                    released: AtomicBool::new(false),
+                    poisoned: AtomicBool::new(false),
+                    lost: watch::channel(false).0,
+                    ttl: options.ttl,
+                });
+                if options.watchdog.unwrap_or(self.watchdog_default) {
+                    spawn_watchdog(&shared);
+                }
+                Ok(RedisLockHandle { shared })
             }
             _ => Err(Error::Held {
                 key: key.to_owned(),
@@ -189,12 +201,77 @@ struct HandleShared {
     owner: OwnerId,
     fence: FencingToken,
     released: AtomicBool,
+    poisoned: AtomicBool,
+    lost: watch::Sender<bool>,
+    ttl: Duration,
 }
 
 impl HandleShared {
     fn mark_released(&self) -> bool {
         !self.released.swap(true, Ordering::AcqRel)
     }
+
+    /// Runs the ownership-checked extend script. `Ok(false)` means Redis
+    /// says we are no longer the owner — definitive loss.
+    async fn fire_extend(&self, ttl: Duration) -> Result<bool> {
+        let mut conn = self.conn.clone();
+        let ok: i64 = self
+            .extend_script
+            .key(&self.key)
+            .key(&self.fence_key)
+            .arg(&self.token)
+            .arg(ttl.as_millis() as u64)
+            .arg(ttl.as_millis() as u64 * u64::from(FENCE_TTL_MULTIPLIER))
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| Error::Backend(format!("extend script failed: {e}")))?;
+        Ok(ok == 1)
+    }
+
+    fn mark_lost(&self) {
+        self.poisoned.store(true, Ordering::Release);
+        self.lost.send_replace(true);
+    }
+}
+
+/// Renews the lease every `ttl / RENEWAL_DIVISOR` until the handle is
+/// released or dropped (detected via the weak reference), or ownership is
+/// definitively gone — which poisons the handle and wakes `until_lost`
+/// waiters instead of letting the critical section run blind.
+fn spawn_watchdog(shared: &Arc<HandleShared>) {
+    let weak = Arc::downgrade(shared);
+    let ttl = shared.ttl;
+    tokio::spawn(async move {
+        let mut transient_failures = 0u32;
+        loop {
+            tokio::time::sleep(ttl / RENEWAL_DIVISOR).await;
+            let Some(s) = weak.upgrade() else {
+                return;
+            };
+            if s.released.load(Ordering::Acquire) {
+                return;
+            }
+            match s.fire_extend(ttl).await {
+                Ok(true) => {
+                    transient_failures = 0;
+                    metrics::counter!("palisade_renewals_total").increment(1);
+                }
+                Ok(false) => {
+                    metrics::counter!("palisade_renewal_failures_total").increment(1);
+                    s.mark_lost();
+                    return;
+                }
+                Err(_) => {
+                    metrics::counter!("palisade_renewal_failures_total").increment(1);
+                    transient_failures += 1;
+                    if transient_failures >= MAX_CONSECUTIVE_RENEW_FAILURES {
+                        s.mark_lost();
+                        return;
+                    }
+                }
+            }
+        }
+    });
 }
 
 impl Drop for HandleShared {
@@ -273,25 +350,15 @@ impl LockHandle for RedisLockHandle {
                 fence: self.shared.fence.value(),
             });
         }
-        let mut conn = self.shared.conn.clone();
-        let ok: i64 = self
-            .shared
-            .extend_script
-            .key(&self.shared.key)
-            .key(&self.shared.fence_key)
-            .arg(&self.shared.token)
-            .arg(ttl.as_millis() as u64)
-            .arg(ttl.as_millis() as u64 * u64::from(FENCE_TTL_MULTIPLIER))
-            .invoke_async(&mut conn)
-            .await
-            .map_err(|e| Error::Backend(format!("extend script failed: {e}")))?;
-        if ok != 1 {
-            return Err(Error::Lost {
+        if self.shared.fire_extend(ttl).await? {
+            Ok(())
+        } else {
+            self.shared.mark_lost();
+            Err(Error::Lost {
                 key: self.shared.key.clone(),
                 fence: self.shared.fence.value(),
-            });
+            })
         }
-        Ok(())
     }
 
     async fn release(&self) -> Result<()> {
@@ -307,6 +374,20 @@ impl LockHandle for RedisLockHandle {
                 key: self.shared.key.clone(),
                 fence: self.shared.fence.value(),
             })
+        }
+    }
+
+    fn is_lost(&self) -> bool {
+        self.shared.poisoned.load(Ordering::Acquire)
+    }
+
+    async fn until_lost(&self) {
+        let mut rx = self.shared.lost.subscribe();
+        while !*rx.borrow_and_update() {
+            // Sender dropped => last handle gone; nothing left to wait for.
+            if rx.changed().await.is_err() {
+                return;
+            }
         }
     }
 }

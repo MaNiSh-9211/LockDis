@@ -18,6 +18,8 @@ Every feature and architectural decision gets an ADR here: **what we picked, why
 | [0010](0010-waiting-strategy-polling.md) | Contended waiting: polling with bounded interval | Accepted |
 | [0011](0011-release-semantics-idempotent-detached-drop.md) | Release semantics: idempotent + detached drop-release | Accepted |
 | [0012](0012-fence-counter-retention-rolling-ttl.md) | Fence counter retention: rolling TTL at 10× lease | Accepted |
+| [0013](0013-watchdog-renewal-design.md) | Watchdog auto-renewal: ttl/3 cadence, weak-ref task | Accepted |
+| [0014](0014-lost-lease-signaling-watch-channel.md) | Lost-lease signaling: watch channel broadcast | Accepted |
 
 ## Template
 

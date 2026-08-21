@@ -9,6 +9,7 @@ use palisade_core::{Error, Result};
 pub struct RedisConfig {
     url: String,
     default_ttl: Duration,
+    watchdog: bool,
 }
 
 impl RedisConfig {
@@ -17,6 +18,7 @@ impl RedisConfig {
         Self {
             url: url.into(),
             default_ttl: Duration::from_secs(30),
+            watchdog: false,
         }
     }
 
@@ -24,6 +26,13 @@ impl RedisConfig {
     /// [`palisade_core::LockOptions::default`].
     pub fn with_default_ttl(mut self, ttl: Duration) -> Self {
         self.default_ttl = ttl;
+        self
+    }
+
+    /// Enables watchdog auto-renewal by default (per-acquisition options
+    /// can still override, see [`palisade_core::LockOptions::with_watchdog`]).
+    pub fn with_watchdog(mut self, watchdog: bool) -> Self {
+        self.watchdog = watchdog;
         self
     }
 
@@ -35,6 +44,11 @@ impl RedisConfig {
     /// The configured default lease duration.
     pub fn default_ttl(&self) -> Duration {
         self.default_ttl
+    }
+
+    /// The configured watchdog default.
+    pub fn watchdog(&self) -> bool {
+        self.watchdog
     }
 
     pub(crate) fn validate(&self) -> Result<()> {

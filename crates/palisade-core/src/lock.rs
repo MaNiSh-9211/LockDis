@@ -20,18 +20,22 @@ pub const MIN_TTL: Duration = Duration::from_millis(10);
 pub struct LockOptions {
     /// Lease duration. The holder must finish (or renew) within it.
     pub ttl: Duration,
+    /// Watchdog auto-renewal override. `None` inherits the backend's
+    /// default; `Some(true)`/`Some(false)` forces it for this acquisition.
+    pub watchdog: Option<bool>,
 }
 
 impl Default for LockOptions {
     fn default() -> Self {
         Self {
             ttl: Duration::from_secs(30),
+            watchdog: None,
         }
     }
 }
 
 impl LockOptions {
-    /// Default options (30 s lease).
+    /// Default options (30 s lease, backend watchdog default).
     pub fn new() -> Self {
         Self::default()
     }
@@ -39,6 +43,12 @@ impl LockOptions {
     /// Sets the lease duration.
     pub fn with_ttl(mut self, ttl: Duration) -> Self {
         self.ttl = ttl;
+        self
+    }
+
+    /// Forces watchdog auto-renewal on or off for this acquisition.
+    pub fn with_watchdog(mut self, watchdog: bool) -> Self {
+        self.watchdog = Some(watchdog);
         self
     }
 
@@ -92,6 +102,17 @@ pub trait LockHandle: Send + Sync {
     /// protected resource and have it reject operations whose token does not
     /// supersede the last accepted one (ADR 0005).
     fn fence(&self) -> FencingToken;
+
+    /// Fast check: has the lease been lost (expired or revoked) under us?
+    ///
+    /// With the watchdog enabled this turns definitive renewal failure into
+    /// an observable signal; without it, loss is only detected when a
+    /// release/extend attempt fails.
+    fn is_lost(&self) -> bool;
+
+    /// Resolves once the lease is lost. Compose with `tokio::select!` to
+    /// abort a long critical section the moment safety is in doubt.
+    async fn until_lost(&self);
 
     /// Resets the lease TTL to `ttl`. Fails with [`Error::Lost`] if the
     /// lease already expired — the critical section must then abort.
