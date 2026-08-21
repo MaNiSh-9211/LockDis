@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "palisade-proto"
 description = "Protobuf contract and tonic codegen for the Palisade lock service"
 version.workspace = true
@@ -9,3 +9,10 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+tonic.workspace = true
+tonic-prost.workspace = true
+prost.workspace = true
+
+[build-dependencies]
+tonic-prost-build.workspace = true
+protoc-bin-vendored.workspace = true

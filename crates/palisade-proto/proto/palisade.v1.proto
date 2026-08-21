@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package palisade.v1;
+
+// Distributed locking service. Expected outcomes (held, timed out, lost)
+// are modeled as oneof results; infrastructure failures use gRPC status
+// codes. Watchers never receive holder tokens (ADR 0022).
+service LockService {
+  // Immediate acquisition attempt.
+  rpc TryLock(TryLockRequest) returns (LockOutcome);
+  // Acquisition with bounded waiting.
+  rpc TryLockFor(TryLockForRequest) returns (LockOutcome);
+  // Ownership-checked release.
+  rpc Unlock(UnlockRequest) returns (UnlockResponse);
+  // Ownership-checked lease refresh.
+  rpc Extend(ExtendRequest) returns (ExtendResponse);
+  // Stream of anonymized state changes for one key.
+  rpc Watch(WatchRequest) returns (stream LockEvent);
+}
+
+message LockOptions {
+  uint64 ttl_ms = 1;
+  optional bool watchdog = 2;
+}
+
+message TryLockRequest {
+  string key = 1;
+  LockOptions options = 2;
+}
+
+message TryLockForRequest {
+  string key = 1;
+  LockOptions options = 2;
+  uint64 wait_ms = 3;
+}
+
+message Granted {
+  string token = 1;
+  uint64 fencing_token = 2;
+  uint64 ttl_ms = 3;
+}
+
+message Held {
+  string key = 1;
+}
+
+message TimedOut {
+  string key = 1;
+}
+
+message LockOutcome {
+  oneof result {
+    Granted granted = 1;
+    Held held = 2;
+    TimedOut timed_out = 3;
+  }
+}
+
+message UnlockRequest {
+  string key = 1;
+  string token = 2;
+}
+
+message Released {}
+
+message Lost {
+  uint64 fencing_token = 1;
+}
+
+message UnlockResponse {
+  oneof result {
+    Released released = 1;
+    Lost lost = 2;
+  }
+}
+
+message ExtendRequest {
+  string key = 1;
+  string token = 2;
+  uint64 ttl_ms = 3;
+}
+
+message Extended {}
+
+message ExtendResponse {
+  oneof result {
+    Extended extended = 1;
+    Lost lost = 2;
+  }
+}
+
+message WatchRequest {
+  string key = 1;
+}
+
+message Acquired {}
+
+message Freed {}
+
+message LockEvent {
+  oneof event {
+    Acquired acquired = 1;
+    Freed freed = 2;
+  }
+}

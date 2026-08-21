@@ -8,9 +8,22 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[lib]
+name = "palisade_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "palisade-server"
 path = "src/main.rs"
 
 [dependencies]
 palisade-core.workspace = true
+palisade-redis.workspace = true
+palisade-proto.workspace = true
+tonic.workspace = true
+prost.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

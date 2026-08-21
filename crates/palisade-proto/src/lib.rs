@@ -1,5 +1,11 @@
 //! Palisade wire contract.
 //!
-//! The `.proto` files and tonic codegen arrive in Phase 5; this crate
-//! reserves the package boundary so downstream crates can depend on it
-//! from day one without churning their manifests.
+//! Generated types live under `palisade::v1` (from `proto/palisade.v1.proto`).
+//! The `.proto` file is the public, versioned contract: backward-compatible
+//! evolution only (see ADR 0008).
+
+pub mod palisade {
+    include!(concat!(env!("OUT_DIR"), "/palisade.v1.rs"));
+}
+
+pub use palisade::*;

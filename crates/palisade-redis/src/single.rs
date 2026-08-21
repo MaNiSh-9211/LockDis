@@ -185,6 +185,57 @@ impl RedisLockManager {
             tokio::time::sleep(sleep_for).await;
         }
     }
+    /// Non-acquiring existence probe: is the key currently held by anyone?
+    /// Used by watch streams; never mutates state.
+    pub async fn probe_held(&self, key: &str) -> Result<bool> {
+        let mut conn = self.conn.clone();
+        let n: i64 = redis::cmd("EXISTS")
+            .arg(key)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| Error::Backend(format!("probe failed: {e}")))?;
+        Ok(n > 0)
+    }
+
+    /// Token-level release for remote callers (gRPC pass-through): runs the
+    /// ownership-checked release script for an arbitrary token without a
+    /// local handle. `Ok(false)` means the token no longer owns the lock.
+    pub async fn unlock_with_token(&self, key: &str, token: &str) -> Result<bool> {
+        let mut conn = self.conn.clone();
+        let ok: i64 = self
+            .release_script
+            .key(key)
+            .key(fence_key_for(key))
+            .arg(token)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| Error::Backend(format!("unlock failed: {e}")))?;
+        Ok(ok == 1)
+    }
+
+    /// Token-level lease refresh for remote callers (gRPC pass-through).
+    /// `Ok(false)` means the token no longer owns the lock.
+    pub async fn extend_with_token(&self, key: &str, token: &str, ttl: Duration) -> Result<bool> {
+        if ttl < palisade_core::MIN_TTL {
+            return Err(Error::InvalidConfig(format!(
+                "extend ttl {:?} is below the {:?} floor",
+                ttl,
+                palisade_core::MIN_TTL
+            )));
+        }
+        let mut conn = self.conn.clone();
+        let ok: i64 = self
+            .extend_script
+            .key(key)
+            .key(fence_key_for(key))
+            .arg(token)
+            .arg(ttl.as_millis() as u64)
+            .arg(ttl.as_millis() as u64 * u64::from(FENCE_TTL_MULTIPLIER))
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| Error::Backend(format!("extend failed: {e}")))?;
+        Ok(ok == 1)
+    }
 }
 
 #[async_trait]

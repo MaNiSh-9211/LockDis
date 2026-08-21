@@ -283,7 +283,7 @@ Three escalating layers:
 | **2. Fencing + watchdog** ✅ | Fence counters, `FencingToken`, renewal task, `LockLostError`, poison semantics | Pause-holder simulation proves stale holder detected; docs chapter on fencing |
 | **3. Rich primitives** ✅ | Reentrant, RWL, semaphore, fair queue, multi-lock | Each primitive has property tests + example |
 | **4. Redlock** ✅ | Quorum acquire/release, partial-failure rollback, config | Chaos test: kill minority of masters mid-hold ⇒ no double-hold |
-| **5. gRPC service + SDK** (wk 9–10) | tonic server, auth (mTLS), Watch stream, Rust client, Python/TS stubs gen | Interop tests; k8s manifests + Helm chart |
+| **5. gRPC service + SDK** 🔶 | tonic server, auth (mTLS), Watch stream, Rust client, Python/TS stubs gen | Interop tests; k8s manifests + Helm chart — *core done (server, Rust SDK, watch, e2e tests); mTLS/k8s/polyglot stubs remain* |
 | **6. Simulation & lin-check** (wk 11–12) | madsim harness, history recorder, linearizability checker, seed corpus in CI | 100 seeds × 10⁶ ops, zero violations |
 | **7. Hardening & release** (wk 13+) | Fuzzing, benchmarks, tuning, docs site, `cargo-dist` releases, changelog | v0.1.0 tagged; benchmark report published |
 
