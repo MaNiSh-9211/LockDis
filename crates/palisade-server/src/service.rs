@@ -45,6 +45,7 @@ impl Default for ServiceConfig {
 pub struct PalisadeService {
     manager: Arc<RedisLockManager>,
     config: ServiceConfig,
+    ready: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl PalisadeService {
@@ -53,6 +54,29 @@ impl PalisadeService {
         Self {
             manager: Arc::new(manager),
             config,
+            ready: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        }
+    }
+
+    /// Flips readiness. While draining, new grants are refused with
+    /// `Unavailable`; existing leases are untouched (the server holds no
+    /// session state — see ADR 0021).
+    pub fn set_ready(&self, ready: bool) {
+        self.ready
+            .store(ready, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Clonable readiness handle for embedders that need to drain from
+    /// outside the service call path.
+    pub fn ready_handle(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.ready.clone()
+    }
+
+    fn check_ready(&self) -> Result<(), Status> {
+        if self.ready.load(std::sync::atomic::Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(Status::unavailable("server is draining"))
         }
     }
 
@@ -112,6 +136,7 @@ impl LockService for PalisadeService {
         &self,
         request: Request<TryLockRequest>,
     ) -> Result<Response<LockOutcome>, Status> {
+        self.check_ready()?;
         let req = request.into_inner();
         let opts = options_from_pb(req.options.as_ref(), &self.config)?;
         match self.manager.try_lock_with(&req.key, &opts).await {
@@ -129,6 +154,7 @@ impl LockService for PalisadeService {
         &self,
         request: Request<TryLockForRequest>,
     ) -> Result<Response<LockOutcome>, Status> {
+        self.check_ready()?;
         let req = request.into_inner();
         let opts = options_from_pb(req.options.as_ref(), &self.config)?;
         let wait = Duration::from_millis(req.wait_ms);

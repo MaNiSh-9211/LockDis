@@ -21,6 +21,7 @@ palisade-core.workspace = true
 palisade-redis.workspace = true
 palisade-proto.workspace = true
 tonic.workspace = true
+tonic-health.workspace = true
 prost.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

@@ -28,16 +28,18 @@ tokio = { version = "1", features = ["full"] }
 redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 async-trait = "0.1"
 metrics = "0.24"
-tonic = "0.14"
+tonic = { version = "0.14", features = ["tls-ring"] }
 tonic-prost = "0.14"
 tonic-build = "0.14"
 tonic-prost-build = "0.14"
+tonic-health = "0.14"
 prost = "0.14"
 protoc-bin-vendored = "3"
 tokio-stream = { version = "0.1", features = ["sync"] }
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rcgen = "0.13"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -28,6 +28,8 @@ Every feature and architectural decision gets an ADR here: **what we picked, why
 | [0020](0020-redlock-independent-masters-fence-allocator.md) | Redlock: independent masters + dedicated fence allocator | Accepted |
 | [0021](0021-wire-pass-through-client-renewal.md) | Wire semantics: stateless pass-through, client-side renewal | Accepted |
 | [0022](0022-outcome-oneofs-anonymized-watch.md) | Wire contract style: outcome oneofs + anonymized watch | Accepted |
+| [0023](0023-health-drain-lifecycle.md) | Readiness & drain: readiness flag + health protocol | Accepted |
+| [0024](0024-mtls-optional-ring-tls.md) | Transport security: optional mTLS, ring-based TLS stack | Accepted |
 
 ## Template
 

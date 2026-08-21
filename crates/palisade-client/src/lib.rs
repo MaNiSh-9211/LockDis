@@ -58,14 +58,43 @@ fn options_pb(options: &LockOptions) -> OptionsPb {
 impl PalisadeClient {
     /// Connects to `endpoint`, e.g. `http://127.0.0.1:50051`.
     pub async fn connect(endpoint: impl Into<String>) -> Result<Self> {
-        let channel = Endpoint::from_shared(endpoint.into())
-            .map_err(|e| Error::InvalidConfig(format!("bad endpoint: {e}")))?
-            .connect()
-            .await
-            .map_err(|e| Error::Backend(format!("connect failed: {e}")))?;
+        let channel = Self::channel(endpoint.into(), None).await?;
         Ok(Self {
             grpc: LockServiceClient::new(channel),
         })
+    }
+
+    /// Connects over mutual TLS. `ca_pem` verifies the server; `cert_pem`/
+    /// `key_pem` identify this client to the server.
+    pub async fn connect_mtls(
+        endpoint: impl Into<String>,
+        ca_pem: impl AsRef<[u8]>,
+        cert_pem: impl AsRef<[u8]>,
+        key_pem: impl AsRef<[u8]>,
+    ) -> Result<Self> {
+        let tls = tonic::transport::ClientTlsConfig::new()
+            .ca_certificate(tonic::transport::Certificate::from_pem(ca_pem))
+            .identity(tonic::transport::Identity::from_pem(cert_pem, key_pem));
+        let channel = Self::channel(endpoint.into(), Some(tls)).await?;
+        Ok(Self {
+            grpc: LockServiceClient::new(channel),
+        })
+    }
+
+    async fn channel(
+        endpoint: String,
+        tls: Option<tonic::transport::ClientTlsConfig>,
+    ) -> Result<Channel> {
+        let mut ep = Endpoint::from_shared(endpoint.clone())
+            .map_err(|e| Error::InvalidConfig(format!("bad endpoint `{endpoint}`: {e}")))?;
+        if let Some(tls) = tls {
+            ep = ep
+                .tls_config(tls)
+                .map_err(|e| Error::InvalidConfig(format!("tls config rejected: {e}")))?;
+        }
+        ep.connect()
+            .await
+            .map_err(|e| Error::Backend(format!("connect failed: {e}")))
     }
 
     /// Attempts immediate acquisition over the wire.

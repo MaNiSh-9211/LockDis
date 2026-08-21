@@ -1,0 +1,26 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/manish-9211/palisade-server
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+redisUrl: redis://redis.palisade.svc:6379
+listen: 0.0.0.0:50051
+maxTtlSecs: 600
+drainGraceSecs: 10
+
+tls:
+  # Existing secret with tls.crt / tls.key / ca.crt (mTLS).
+  existingSecret: palisade-server-tls
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+service:
+  type: ClusterIP
+  port: 50051

@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-palisade-server
+  labels:
+    app.kubernetes.io/name: palisade-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: palisade-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: palisade-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: server
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --redis-url={{ .Values.redisUrl }}
+            - --listen={{ .Values.listen }}
+            - --max-ttl-secs={{ .Values.maxTtlSecs }}
+            - --drain-grace-secs={{ .Values.drainGraceSecs }}
+            - --tls-cert=/etc/palisade/tls/tls.crt
+            - --tls-key=/etc/palisade/tls/tls.key
+            - --client-ca=/etc/palisade/tls/ca.crt
+          ports:
+            - name: grpc
+              containerPort: 50051
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/palisade/tls
+              readOnly: true
+          readinessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.existingSecret }}

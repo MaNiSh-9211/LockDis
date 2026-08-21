@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: palisade-server
+  labels:
+    app.kubernetes.io/name: palisade-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: palisade-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: palisade-server
+    spec:
+      containers:
+        - name: server
+          image: ghcr.io/manish-9211/palisade-server:0.1.0
+          args:
+            - --redis-url=redis://redis.palisade.svc:6379
+            - --listen=0.0.0.0:50051
+            - --max-ttl-secs=600
+            - --drain-grace-secs=10
+            - --tls-cert=/etc/palisade/tls/tls.crt
+            - --tls-key=/etc/palisade/tls/tls.key
+            - --client-ca=/etc/palisade/tls/ca.crt
+          ports:
+            - name: grpc
+              containerPort: 50051
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/palisade/tls
+              readOnly: true
+          readinessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: tls
+          secret:
+            secretName: palisade-server-tls

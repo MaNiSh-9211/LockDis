@@ -20,3 +20,4 @@ async-trait.workspace = true
 palisade-redis.workspace = true
 palisade-server.workspace = true
 redis.workspace = true
+rcgen.workspace = true

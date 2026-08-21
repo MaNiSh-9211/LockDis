@@ -49,10 +49,10 @@ Build the most modern open-source distributed locking system: a **Rust workspace
 - [x] **Lost-lease signaling** — `is_lost()` / `until_lost()` so critical sections can abort when the watchdog detects loss
 
 ### Service layer
-- [ ] **gRPC server** (tonic): Lock/Unlock/Extend/Watch RPCs, streaming watch for lock-state changes
-- [ ] **mTLS + token auth** between clients and server
-- [ ] **Graceful drain**: server refuses new grants, lets leases expire naturally
-- [ ] **Health probes** (gRPC health protocol) for k8s
+- [x] **gRPC server** (tonic): Lock/Unlock/Extend/Watch RPCs, streaming watch for lock-state changes
+- [x] **mTLS + token auth** between clients and server (client-cert mTLS via rustls/ring; SDK `connect_mtls`)
+- [x] **Graceful drain**: server refuses new grants, lets leases expire naturally (readiness flag + gRPC health + signal handling)
+- [x] **Health probes** (gRPC health protocol) for k8s
 
 ### Ops / quality
 - [ ] Prometheus metrics: grant latency histograms, contention counters, renewal failures, fence token gaps
@@ -283,7 +283,7 @@ Three escalating layers:
 | **2. Fencing + watchdog** ✅ | Fence counters, `FencingToken`, renewal task, `LockLostError`, poison semantics | Pause-holder simulation proves stale holder detected; docs chapter on fencing |
 | **3. Rich primitives** ✅ | Reentrant, RWL, semaphore, fair queue, multi-lock | Each primitive has property tests + example |
 | **4. Redlock** ✅ | Quorum acquire/release, partial-failure rollback, config | Chaos test: kill minority of masters mid-hold ⇒ no double-hold |
-| **5. gRPC service + SDK** 🔶 | tonic server, auth (mTLS), Watch stream, Rust client, Python/TS stubs gen | Interop tests; k8s manifests + Helm chart — *core done (server, Rust SDK, watch, e2e tests); mTLS/k8s/polyglot stubs remain* |
+| **5. gRPC service + SDK** 🔶 | tonic server, auth (mTLS), Watch stream, Rust client, Python/TS stubs gen | Interop tests; k8s manifests + Helm chart — *done: server+SDK+watch+mTLS+health/drain+k8s/Helm+stub scripts; pending: committed polyglot stub artifacts* |
 | **6. Simulation & lin-check** (wk 11–12) | madsim harness, history recorder, linearizability checker, seed corpus in CI | 100 seeds × 10⁶ ops, zero violations |
 | **7. Hardening & release** (wk 13+) | Fuzzing, benchmarks, tuning, docs site, `cargo-dist` releases, changelog | v0.1.0 tagged; benchmark report published |
 
