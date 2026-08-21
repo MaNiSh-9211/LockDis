@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 palisade-core.workspace = true
 palisade-proto.workspace = true
+palisade-testing.workspace = true
 tonic.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

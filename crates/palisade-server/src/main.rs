@@ -1,4 +1,4 @@
-﻿//! Palisade gRPC server binary.
+//! Palisade gRPC server binary.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -40,6 +40,10 @@ struct Args {
     /// Seconds between readiness flip and listener shutdown on drain.
     #[arg(long, default_value_t = 10)]
     drain_grace_secs: u64,
+
+    /// Serve Prometheus metrics at this address (e.g. 0.0.0.0:9100).
+    #[arg(long)]
+    metrics_addr: Option<SocketAddr>,
 }
 
 #[tokio::main]
@@ -84,6 +88,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
     tracing::info!(addr = %args.listen, "palisade-server listening");
 
+    if let Some(metrics_addr) = args.metrics_addr {
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().install_recorder()?;
+        tracing::info!(addr = %metrics_addr, "serving prometheus metrics");
+        tokio::spawn(serve_metrics(metrics_addr, recorder));
+    }
+
     // Drain: flip readiness + health first, wait out in-flight retries,
     // then let the listener shut down. Held leases are unaffected by design.
     let ready_flag = service.ready_handle();
@@ -120,6 +130,35 @@ async fn drain_signal() {
     #[cfg(not(unix))]
     {
         let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+/// Minimal HTTP responder for the Prometheus text format on one path —
+/// avoids pulling a web framework for a single endpoint.
+async fn serve_metrics(
+    addr: SocketAddr,
+    recorder: metrics_exporter_prometheus::PrometheusHandle,
+) -> std::io::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    loop {
+        let (mut sock, _) = listener.accept().await?;
+        let recorder = recorder.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1024];
+            if sock.read(&mut buf).await.is_err() {
+                return;
+            }
+            let body = recorder.render();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/plain; version=0.0.4\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = sock.write_all(response.as_bytes()).await;
+            let _ = sock.shutdown().await;
+        });
     }
 }
 

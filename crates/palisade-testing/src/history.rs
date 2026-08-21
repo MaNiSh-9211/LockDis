@@ -23,6 +23,8 @@ pub struct HistoryEntry {
     pub key: String,
     pub op: OpKind,
     pub ok: bool,
+    /// Fencing token in effect for this operation (0 when none).
+    pub fence: u64,
     /// Monotonic start, relative to recorder creation (microseconds).
     pub start_us: u64,
     /// Monotonic end, relative to recorder creation (microseconds).
@@ -53,7 +55,7 @@ impl HistoryRecorder {
 
     /// Records one completed operation using the current instant as end
     /// and `started_at` as its beginning.
-    pub fn record(&self, key: &str, op: OpKind, ok: bool, started_at: Instant) {
+    pub fn record(&self, key: &str, op: OpKind, ok: bool, fence: u64, started_at: Instant) {
         let end_us = self.origin.elapsed().as_micros() as u64;
         let start_us = started_at
             .saturating_duration_since(*self.origin)
@@ -65,6 +67,7 @@ impl HistoryRecorder {
                 key: key.to_owned(),
                 op,
                 ok,
+                fence,
                 start_us,
                 end_us,
             });

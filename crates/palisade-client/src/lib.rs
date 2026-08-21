@@ -15,6 +15,7 @@ use palisade_proto::{
     ExtendRequest, LockOptions as OptionsPb, TryLockForRequest, TryLockRequest, UnlockRequest,
     WatchRequest, lock_service_client::LockServiceClient,
 };
+use palisade_testing::history::OpKind;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Request;
 use tonic::transport::{Channel, Endpoint};
@@ -27,6 +28,7 @@ const MAX_CONSECUTIVE_RENEW_FAILURES: u32 = 2;
 #[derive(Clone)]
 pub struct PalisadeClient {
     grpc: LockServiceClient<Channel>,
+    history: Option<palisade_testing::HistoryRecorder>,
 }
 
 impl std::fmt::Debug for PalisadeClient {
@@ -61,7 +63,15 @@ impl PalisadeClient {
         let channel = Self::channel(endpoint.into(), None).await?;
         Ok(Self {
             grpc: LockServiceClient::new(channel),
+            history: None,
         })
+    }
+
+    /// Attaches a [`palisade_testing::HistoryRecorder`] so every subsequent
+    /// operation lands in a checkable timeline.
+    pub fn with_history(mut self, recorder: palisade_testing::HistoryRecorder) -> Self {
+        self.history = Some(recorder);
+        self
     }
 
     /// Connects over mutual TLS. `ca_pem` verifies the server; `cert_pem`/
@@ -78,6 +88,7 @@ impl PalisadeClient {
         let channel = Self::channel(endpoint.into(), Some(tls)).await?;
         Ok(Self {
             grpc: LockServiceClient::new(channel),
+            history: None,
         })
     }
 
@@ -99,6 +110,7 @@ impl PalisadeClient {
 
     /// Attempts immediate acquisition over the wire.
     pub async fn try_lock(&self, key: &str, options: &LockOptions) -> Result<RemoteLockHandle> {
+        let started = std::time::Instant::now();
         let request = TryLockRequest {
             key: key.to_owned(),
             options: Some(options_pb(options)),
@@ -113,11 +125,19 @@ impl PalisadeClient {
 
         match outcome.result {
             Some(palisade_proto::lock_outcome::Result::Granted(g)) => {
+                if let Some(rec) = &self.history {
+                    rec.record(key, OpKind::TryAcquire, true, g.fencing_token, started);
+                }
                 Ok(self.make_handle(key, g.token, g.fencing_token, options))
             }
-            Some(palisade_proto::lock_outcome::Result::Held(_)) => Err(Error::Held {
-                key: key.to_owned(),
-            }),
+            Some(palisade_proto::lock_outcome::Result::Held(_)) => {
+                if let Some(rec) = &self.history {
+                    rec.record(key, OpKind::TryAcquire, false, 0, started);
+                }
+                Err(Error::Held {
+                    key: key.to_owned(),
+                })
+            }
             _ => Err(Error::Backend("malformed LockOutcome".into())),
         }
     }
@@ -129,6 +149,7 @@ impl PalisadeClient {
         options: &LockOptions,
         wait: Duration,
     ) -> Result<RemoteLockHandle> {
+        let started = std::time::Instant::now();
         let request = TryLockForRequest {
             key: key.to_owned(),
             options: Some(options_pb(options)),
@@ -144,14 +165,27 @@ impl PalisadeClient {
 
         match outcome.result {
             Some(palisade_proto::lock_outcome::Result::Granted(g)) => {
+                if let Some(rec) = &self.history {
+                    rec.record(key, OpKind::TryAcquire, true, g.fencing_token, started);
+                }
                 Ok(self.make_handle(key, g.token, g.fencing_token, options))
             }
-            Some(palisade_proto::lock_outcome::Result::Held(_)) => Err(Error::Held {
-                key: key.to_owned(),
-            }),
-            Some(palisade_proto::lock_outcome::Result::TimedOut(_)) => Err(Error::Timeout {
-                key: key.to_owned(),
-            }),
+            Some(palisade_proto::lock_outcome::Result::Held(_)) => {
+                if let Some(rec) = &self.history {
+                    rec.record(key, OpKind::TryAcquire, false, 0, started);
+                }
+                Err(Error::Held {
+                    key: key.to_owned(),
+                })
+            }
+            Some(palisade_proto::lock_outcome::Result::TimedOut(_)) => {
+                if let Some(rec) = &self.history {
+                    rec.record(key, OpKind::TryAcquire, false, 0, started);
+                }
+                Err(Error::Timeout {
+                    key: key.to_owned(),
+                })
+            }
             None => Err(Error::Backend("malformed LockOutcome".into())),
         }
     }
@@ -194,6 +228,7 @@ impl PalisadeClient {
         let ttl = options.ttl;
         let shared = Arc::new(RemoteShared {
             grpc: self.grpc.clone(),
+            history: self.history.clone(),
             key: key.to_owned(),
             token,
             fence: FencingToken::new(fence_value),
@@ -212,6 +247,7 @@ impl PalisadeClient {
 
 struct RemoteShared {
     grpc: LockServiceClient<Channel>,
+    history: Option<palisade_testing::HistoryRecorder>,
     key: String,
     token: String,
     owner: OwnerId,
@@ -233,6 +269,7 @@ impl RemoteShared {
     }
 
     async fn fire_extend(&self, ttl: Duration) -> Result<bool> {
+        let started = std::time::Instant::now();
         let mut grpc = self.grpc.clone();
         let response = grpc
             .extend(Request::new(ExtendRequest {
@@ -243,13 +280,18 @@ impl RemoteShared {
             .await
             .map_err(status_to_error)?
             .into_inner();
-        Ok(matches!(
+        let ok = matches!(
             response.result,
             Some(palisade_proto::extend_response::Result::Extended(_))
-        ))
+        );
+        if let Some(rec) = &self.history {
+            rec.record(&self.key, OpKind::Extend, ok, self.fence.value(), started);
+        }
+        Ok(ok)
     }
 
     async fn run_unlock(&self) -> Result<()> {
+        let started = std::time::Instant::now();
         let mut grpc = self.grpc.clone();
         let response = grpc
             .unlock(Request::new(UnlockRequest {
@@ -259,10 +301,20 @@ impl RemoteShared {
             .await
             .map_err(status_to_error)?
             .into_inner();
-        if matches!(
+        let released = matches!(
             response.result,
             Some(palisade_proto::unlock_response::Result::Released(_))
-        ) {
+        );
+        if let Some(rec) = &self.history {
+            rec.record(
+                &self.key,
+                OpKind::Release,
+                released,
+                self.fence.value(),
+                started,
+            );
+        }
+        if released {
             Ok(())
         } else {
             Err(Error::Lost {
@@ -281,6 +333,7 @@ impl Drop for RemoteShared {
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let shared = RemoteShared {
                 grpc: self.grpc.clone(),
+                history: None,
                 key: self.key.clone(),
                 token: self.token.clone(),
                 owner: self.owner.clone(),

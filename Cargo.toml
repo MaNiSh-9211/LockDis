@@ -22,12 +22,14 @@ palisade-core = { path = "crates/palisade-core" }
 palisade-redis = { path = "crates/palisade-redis" }
 palisade-proto = { path = "crates/palisade-proto" }
 palisade-server = { path = "crates/palisade-server" }
+palisade-testing = { path = "crates/palisade-testing" }
 thiserror = "2"
 uuid = { version = "1", features = ["v7"] }
 tokio = { version = "1", features = ["full"] }
 redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 async-trait = "0.1"
 metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
 tonic = { version = "0.14", features = ["tls-ring"] }
 tonic-prost = "0.14"
 tonic-build = "0.14"
@@ -41,6 +43,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rcgen = "0.13"
 proptest = "1"
+criterion = { version = "0.7", features = ["async_tokio"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

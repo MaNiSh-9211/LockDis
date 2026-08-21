@@ -126,7 +126,15 @@ impl RedisLockManager {
             .await
             .map_err(|e| Error::Backend(format!("acquire script failed: {e}")))?;
 
-        metrics::histogram!("palisade_acquire_seconds").record(started.elapsed().as_secs_f64());
+        let elapsed = started.elapsed();
+        metrics::histogram!("palisade_acquire_seconds").record(elapsed.as_secs_f64());
+        tracing::debug!(
+            key,
+            fence,
+            status,
+            elapsed_ms = elapsed.as_millis() as u64,
+            "acquire complete"
+        );
 
         match status {
             1 | 2 => {
@@ -444,9 +452,10 @@ impl LockHandle for RedisLockHandle {
         if !self.shared.mark_released() {
             return Ok(());
         }
-        let released = self.run_release().await?;
-        if released == 1 {
+        let released_ok = self.run_release().await?;
+        if released_ok == 1 {
             metrics::counter!("palisade_releases_total").increment(1);
+            tracing::debug!(key = %self.shared.key, fence = self.shared.fence.value(), "released");
             Ok(())
         } else {
             Err(Error::Lost {
