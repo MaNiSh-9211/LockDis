@@ -1,6 +1,6 @@
 [package]
 name = "palisade-testing"
-description = "Correctness harness: property tests, madsim simulation, linearizability checking, chaos scenarios"
+description = "Correctness harness: property tests, deterministic simulation, invariant checking, chaos scenarios"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,3 +10,8 @@ authors.workspace = true
 
 [dependencies]
 palisade-core.workspace = true
+
+[dev-dependencies]
+palisade-redis.workspace = true
+tokio.workspace = true
+proptest.workspace = true

@@ -284,7 +284,7 @@ Three escalating layers:
 | **3. Rich primitives** ✅ | Reentrant, RWL, semaphore, fair queue, multi-lock | Each primitive has property tests + example |
 | **4. Redlock** ✅ | Quorum acquire/release, partial-failure rollback, config | Chaos test: kill minority of masters mid-hold ⇒ no double-hold |
 | **5. gRPC service + SDK** 🔶 | tonic server, auth (mTLS), Watch stream, Rust client, Python/TS stubs gen | Interop tests; k8s manifests + Helm chart — *done: server+SDK+watch+mTLS+health/drain+k8s/Helm+stub scripts; pending: committed polyglot stub artifacts* |
-| **6. Simulation & lin-check** (wk 11–12) | madsim harness, history recorder, linearizability checker, seed corpus in CI | 100 seeds × 10⁶ ops, zero violations |
+| **6. Simulation & lin-check** 🔶 | madsim harness, history recorder, linearizability checker, seed corpus in CI | 100 seeds × 10⁶ ops, zero violations — *done: bespoke sim (ADR 0025), 200-seed gate green, mutation-validated checker, Redis property suite; pending: wire histories from real clients into checker* |
 | **7. Hardening & release** (wk 13+) | Fuzzing, benchmarks, tuning, docs site, `cargo-dist` releases, changelog | v0.1.0 tagged; benchmark report published |
 
 ---

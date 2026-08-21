@@ -40,6 +40,7 @@ clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rcgen = "0.13"
+proptest = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

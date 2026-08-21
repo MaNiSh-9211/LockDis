@@ -30,6 +30,7 @@ Every feature and architectural decision gets an ADR here: **what we picked, why
 | [0022](0022-outcome-oneofs-anonymized-watch.md) | Wire contract style: outcome oneofs + anonymized watch | Accepted |
 | [0023](0023-health-drain-lifecycle.md) | Readiness & drain: readiness flag + health protocol | Accepted |
 | [0024](0024-mtls-optional-ring-tls.md) | Transport security: optional mTLS, ring-based TLS stack | Accepted |
+| [0025](0025-bespoke-deterministic-simulation.md) | Deterministic simulation: bespoke seeded scheduler | Accepted |
 
 ## Template
 
