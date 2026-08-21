@@ -11,6 +11,7 @@
 pub mod config;
 pub mod fair;
 pub mod multi;
+pub mod redlock;
 pub mod reentrant;
 pub mod rwlock;
 mod scripts;
@@ -20,6 +21,7 @@ pub mod single;
 pub use config::RedisConfig;
 pub use fair::FairLockHandle;
 pub use multi::MultiLockHandle;
+pub use redlock::{RedlockConfig, RedlockHandle, RedlockManager};
 pub use reentrant::ReentrantLockHandle;
 pub use rwlock::{RwReadHandle, RwWriteHandle};
 pub use semaphore::{RedisSemaphore, SemaphorePermit};

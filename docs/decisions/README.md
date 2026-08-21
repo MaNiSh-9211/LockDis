@@ -25,6 +25,7 @@ Every feature and architectural decision gets an ADR here: **what we picked, why
 | [0017](0017-semaphore-zset-server-time.md) | Semaphore: ZSET scored by Redis-side expiry instants | Accepted |
 | [0018](0018-fair-queue-heartbeat-handoff.md) | Fair queue: FIFO list, heartbeats, handoff-on-release | Accepted |
 | [0019](0019-multi-lock-sorted-rollback.md) | Multi-lock: sorted acquisition + rollback retry | Accepted |
+| [0020](0020-redlock-independent-masters-fence-allocator.md) | Redlock: independent masters + dedicated fence allocator | Accepted |
 
 ## Template
 
