@@ -40,11 +40,11 @@ Build the most modern open-source distributed locking system: a **Rust workspace
 - [x] **Mutex lease** — exclusive lock with TTL (`SET key token NX PX ttl` + Lua-guarded release/extend)
 - [x] **Fencing tokens** — 64-bit monotonic token per grant (Redis `INCR` on a fence counter, atomic with the grant via Lua)
 - [x] **Watchdog auto-renewal** — background task extends the lease at `ttl/3` while the critical section runs; stops on drop/cancel
-- [ ] **Reentrant locks** — owner ID + hold count stored in a hash; same owner re-acquires instantly
-- [ ] **Read-write lock** — shared readers counted, writer exclusive; reader-preferring or writer-preferring modes
-- [ ] **Semaphore** — N concurrent holders, fair FIFO queue
-- [ ] **Fair (queued) mode** — FIFO waiter queue via Redis list + `BLPOP`-style signaling with polling fallback (keyspace notifications are fire-and-forget, never trusted alone)
-- [ ] **Multi-lock** — acquire K locks in a globally sorted order (deadlock-free), all-or-nothing with rollback
+- [x] **Reentrant locks** — owner ID + hold count stored in a hash; same owner re-acquires instantly
+- [x] **Read-write lock** — shared readers counted, writer exclusive; reader-preferring or writer-preferring modes
+- [x] **Semaphore** — N concurrent holders, fair FIFO queue
+- [x] **Fair (queued) mode** — FIFO waiter queue via Redis list + `BLPOP`-style signaling with polling fallback (keyspace notifications are fire-and-forget, never trusted alone)
+- [x] **Multi-lock** — acquire K locks in a globally sorted order (deadlock-free), all-or-nothing with rollback
 - [x] **Try-lock with deadline** — `try_lock_for(duration)` built on cancellation-safe Tokio timers
 - [x] **Lost-lease signaling** — `is_lost()` / `until_lost()` so critical sections can abort when the watchdog detects loss
 
@@ -281,7 +281,7 @@ Three escalating layers:
 | **0. Scaffold** (wk 1) | Workspace, CI (fmt, clippy `-D warnings`, test, coverage), README skeleton | `cargo ci` green on empty crates |
 | **1. Single-node mutex** ✅ | Lua scripts, `DistributedLock` trait, OwnerId, basic metrics | Layer-1 property tests pass against real Redis (testcontainers) |
 | **2. Fencing + watchdog** ✅ | Fence counters, `FencingToken`, renewal task, `LockLostError`, poison semantics | Pause-holder simulation proves stale holder detected; docs chapter on fencing |
-| **3. Rich primitives** (wk 6–7) | Reentrant, RWL, semaphore, fair queue, multi-lock | Each primitive has property tests + example |
+| **3. Rich primitives** ✅ | Reentrant, RWL, semaphore, fair queue, multi-lock | Each primitive has property tests + example |
 | **4. Redlock** (wk 8) | Quorum acquire/release, partial-failure rollback, config | Chaos test: kill minority of masters mid-hold ⇒ no double-hold |
 | **5. gRPC service + SDK** (wk 9–10) | tonic server, auth (mTLS), Watch stream, Rust client, Python/TS stubs gen | Interop tests; k8s manifests + Helm chart |
 | **6. Simulation & lin-check** (wk 11–12) | madsim harness, history recorder, linearizability checker, seed corpus in CI | 100 seeds × 10⁶ ops, zero violations |

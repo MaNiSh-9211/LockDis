@@ -21,7 +21,7 @@ use crate::config::RedisConfig;
 use crate::scripts;
 
 /// Poll cadence while waiting for a contended lock.
-const POLL_INTERVAL: Duration = Duration::from_millis(20);
+pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 /// The watchdog renews every `RENEWAL_DIVISOR`-th of the lease; two renewal
 /// opportunities must fail before a normal TTL boundary is at risk.
@@ -41,12 +41,26 @@ const FENCE_TTL_MULTIPLIER: u32 = 10;
 /// Clone-cheap: all handles share one multiplexed connection.
 #[derive(Clone)]
 pub struct RedisLockManager {
-    conn: ConnectionManager,
+    pub(crate) conn: ConnectionManager,
     default_ttl: Duration,
     watchdog_default: bool,
-    acquire_script: Script,
-    release_script: Script,
-    extend_script: Script,
+    pub(crate) acquire_script: Script,
+    pub(crate) release_script: Script,
+    pub(crate) extend_script: Script,
+    pub(crate) reentrant_acquire_script: Script,
+    pub(crate) reentrant_release_script: Script,
+    pub(crate) reentrant_release_all_script: Script,
+    pub(crate) reentrant_extend_script: Script,
+    pub(crate) rw_read_acquire_script: Script,
+    pub(crate) rw_read_release_script: Script,
+    pub(crate) rw_write_acquire_script: Script,
+    pub(crate) rw_write_release_script: Script,
+    pub(crate) rw_extend_script: Script,
+    pub(crate) semaphore_acquire_script: Script,
+    pub(crate) semaphore_release_script: Script,
+    pub(crate) semaphore_extend_script: Script,
+    pub(crate) fair_acquire_script: Script,
+    pub(crate) fair_release_script: Script,
 }
 
 impl RedisLockManager {
@@ -66,6 +80,20 @@ impl RedisLockManager {
             acquire_script: Script::new(scripts::ACQUIRE),
             release_script: Script::new(scripts::RELEASE),
             extend_script: Script::new(scripts::EXTEND),
+            reentrant_acquire_script: Script::new(scripts::REENTRANT_ACQUIRE),
+            reentrant_release_script: Script::new(scripts::REENTRANT_RELEASE),
+            reentrant_release_all_script: Script::new(scripts::REENTRANT_RELEASE_ALL),
+            reentrant_extend_script: Script::new(scripts::REENTRANT_EXTEND),
+            rw_read_acquire_script: Script::new(scripts::RW_READ_ACQUIRE),
+            rw_read_release_script: Script::new(scripts::RW_READ_RELEASE),
+            rw_write_acquire_script: Script::new(scripts::RW_WRITE_ACQUIRE),
+            rw_write_release_script: Script::new(scripts::RW_WRITE_RELEASE),
+            rw_extend_script: Script::new(scripts::RW_EXTEND),
+            semaphore_acquire_script: Script::new(scripts::SEMAPHORE_ACQUIRE),
+            semaphore_release_script: Script::new(scripts::SEMAPHORE_RELEASE),
+            semaphore_extend_script: Script::new(scripts::SEMAPHORE_EXTEND),
+            fair_acquire_script: Script::new(scripts::FAIR_ACQUIRE),
+            fair_release_script: Script::new(scripts::FAIR_RELEASE),
         })
     }
 
@@ -394,7 +422,7 @@ impl LockHandle for RedisLockHandle {
 
 /// Lock and fence counter must share a cluster hash slot (Lua scripts are
 /// single-slot); the `{key}` tag achieves that on both standalone and cluster.
-fn fence_key_for(key: &str) -> String {
+pub(crate) fn fence_key_for(key: &str) -> String {
     format!("{{{key}}}:fence")
 }
 

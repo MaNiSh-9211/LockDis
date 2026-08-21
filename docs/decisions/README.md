@@ -20,6 +20,11 @@ Every feature and architectural decision gets an ADR here: **what we picked, why
 | [0012](0012-fence-counter-retention-rolling-ttl.md) | Fence counter retention: rolling TTL at 10× lease | Accepted |
 | [0013](0013-watchdog-renewal-design.md) | Watchdog auto-renewal: ttl/3 cadence, weak-ref task | Accepted |
 | [0014](0014-lost-lease-signaling-watch-channel.md) | Lost-lease signaling: watch channel broadcast | Accepted |
+| [0015](0015-reentrant-hash-hold-count.md) | Reentrant lock: hash hold count, caller-supplied owner | Accepted |
+| [0016](0016-rw-lock-design.md) | Read-write lock: reader-preferring, no promotions | Accepted |
+| [0017](0017-semaphore-zset-server-time.md) | Semaphore: ZSET scored by Redis-side expiry instants | Accepted |
+| [0018](0018-fair-queue-heartbeat-handoff.md) | Fair queue: FIFO list, heartbeats, handoff-on-release | Accepted |
+| [0019](0019-multi-lock-sorted-rollback.md) | Multi-lock: sorted acquisition + rollback retry | Accepted |
 
 ## Template
 

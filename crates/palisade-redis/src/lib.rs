@@ -4,12 +4,23 @@
 //! single-instance leases with Lua-guarded release/extend, mandatory
 //! fencing tokens, watchdog auto-renewal, and Redlock quorum mode.
 //!
-//! Status: Phase 1 — single-instance mutex complete; watchdog, RWL,
-//! semaphore, fair queues, and Redlock land next.
+//! Status: Phases 1–3 complete (mutex, fencing, watchdog, reentrant,
+//! read-write, semaphore, fair queue, multi-lock). Redlock lands in
+//! Phase 4.
 
 pub mod config;
+pub mod fair;
+pub mod multi;
+pub mod reentrant;
+pub mod rwlock;
 mod scripts;
+pub mod semaphore;
 pub mod single;
 
 pub use config::RedisConfig;
+pub use fair::FairLockHandle;
+pub use multi::MultiLockHandle;
+pub use reentrant::ReentrantLockHandle;
+pub use rwlock::{RwReadHandle, RwWriteHandle};
+pub use semaphore::{RedisSemaphore, SemaphorePermit};
 pub use single::{RedisLockHandle, RedisLockManager};
