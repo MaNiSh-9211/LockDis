@@ -45,7 +45,8 @@ async fn spawn_stack_with_acl() -> Option<(PalisadeClient, String)> {
     Some((
         PalisadeClient::connect(format!("http://{addr}"))
             .await
-            .expect("connect"),
+            .expect("connect")
+            .with_token("root-token"),
         addr,
     ))
 }

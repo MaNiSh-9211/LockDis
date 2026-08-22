@@ -26,8 +26,22 @@ pub(crate) struct SessionEntry {
     pub client_id: String,
     pub ttl: Duration,
     pub last_seen: Instant,
+    /// Minimum spacing between accepted heartbeats (ttl/20): a client
+    /// following the documented ttl/3 cadence can never trip it.
+    pub hb_floor: Instant,
     /// Locks bound to this session: (key, owner token).
     pub locks: Vec<(String, String)>,
+}
+
+/// Outcome of a heartbeat attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HbResult {
+    /// Accepted; liveness refreshed.
+    Ok,
+    /// Arrived faster than the ttl/20 floor.
+    RateLimited,
+    /// No such session (expired or never registered).
+    Unknown,
 }
 
 impl SessionEntry {
@@ -52,20 +66,27 @@ impl SessionBook {
                 client_id,
                 ttl,
                 last_seen: Instant::now(),
+                hb_floor: Instant::now(),
                 locks: Vec::new(),
             },
         );
         token
     }
 
-    pub fn heartbeat(&self, token: &str) -> bool {
+    pub fn heartbeat(&self, token: &str) -> HbResult {
+        let now = Instant::now();
         let mut book = self.inner.lock().expect("session book");
         match book.get_mut(token) {
             Some(entry) => {
-                entry.last_seen = Instant::now();
-                true
+                if now < entry.hb_floor {
+                    metrics::counter!("palisade_session_rate_limited_total").increment(1);
+                    return HbResult::RateLimited;
+                }
+                entry.hb_floor = now + entry.ttl / 20;
+                entry.last_seen = now;
+                HbResult::Ok
             }
-            None => false,
+            None => HbResult::Unknown,
         }
     }
 

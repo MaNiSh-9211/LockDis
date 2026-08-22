@@ -1,0 +1,20 @@
+# Chaos lab: full topology for Track-A experiments.
+#   docker compose -f deploy/compose/chaos.yaml up -d
+#   PALISADE_CHAOS=1 cargo test -p palisade-redis --test chaos_partition
+services:
+  redis-main:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  rl-master-1:
+    image: redis:7-alpine
+    ports: ["6380:6379"]
+  rl-master-2:
+    image: redis:7-alpine
+    ports: ["6381:6379"]
+  rl-master-3:
+    image: redis:7-alpine
+    ports: ["6382:6379"]
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+    command: etcd --advertise-client-urls http://0.0.0.0:2379 --listen-client-urls http://0.0.0.0:2379
+    ports: ["2379:2379"]

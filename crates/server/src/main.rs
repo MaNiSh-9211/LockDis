@@ -67,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let _sweeper = palisade_server::start_session_sweeper(&service);
 
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let mut builder = Server::builder();
     if let (Some(cert), Some(key)) = (&args.tls_cert, &args.tls_key) {
         let cert = std::fs::read(cert)?;

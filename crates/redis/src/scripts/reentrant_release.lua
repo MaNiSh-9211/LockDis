@@ -17,5 +17,7 @@ if count <= 0 then
   return 0
 end
 
-redis.call('PEXPIRE', KEYS[1], ARGV[2])
+if tonumber(ARGV[2]) > 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[2])
+end
 return count

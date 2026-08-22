@@ -32,8 +32,11 @@ pub struct WatchHub {
 struct HubInner {
     manager: RedisLockManager,
     /// key -> broadcast state; `None` until the first probe completes.
-    keys: Mutex<HashMap<String, watch::Sender<Option<(bool, u64)>>>>,
+    keys: Mutex<HashMap<String, VersionBroadcast>>,
 }
+
+/// Shared broadcast of `(held, version)`; `None` until first probe.
+type VersionBroadcast = watch::Sender<Option<(bool, u64)>>;
 
 impl WatchHub {
     pub fn new(manager: RedisLockManager) -> Self {
@@ -54,9 +57,10 @@ impl WatchHub {
                 tx.subscribe()
             } else {
                 let (tx, rx) = watch::channel::<Option<(bool, u64)>>(None);
-                keys.insert(key.to_owned(), tx.clone());
+                let poller_tx = tx.clone();
+                keys.insert(key.to_owned(), tx);
                 drop(keys);
-                self.spawn_poller(key.to_owned(), tx);
+                self.spawn_poller(key.to_owned(), poller_tx);
                 rx
             }
         };
@@ -118,7 +122,9 @@ impl WatchHub {
 fn transition_event(held: bool, version: u64) -> LockEvent {
     if held {
         LockEvent {
-            event: Some(palisade_proto::lock_event::Event::Acquired(Acquired { version })),
+            event: Some(palisade_proto::lock_event::Event::Acquired(Acquired {
+                version,
+            })),
         }
     } else {
         LockEvent {

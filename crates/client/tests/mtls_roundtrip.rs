@@ -83,6 +83,8 @@ async fn spawn_mtls_stack(material: &CertMaterial) -> Option<SocketAddr> {
 
 #[tokio::test]
 async fn mtls_roundtrip_and_plaintext_rejection() {
+    // Multiple crypto providers may be linked; pick ring deterministically.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let material = match ca_material() {
         Ok(m) => m,
         Err(e) => panic!("cert generation failed: {e}"),
@@ -108,7 +110,21 @@ async fn mtls_roundtrip_and_plaintext_rejection() {
     let h = client.try_lock(&key, &opts).await.expect("grant over mtls");
     h.release().await.expect("release over mtls");
 
-    // Plaintext against a TLS-only listener must fail.
-    let plain = PalisadeClient::connect(format!("http://{addr}")).await;
-    assert!(plain.is_err(), "plaintext connection should be rejected");
+    // Plaintext against a TLS-only listener must never yield a working
+    // channel: reject at connect OR at first RPC.
+    match PalisadeClient::connect(format!("http://{addr}")).await {
+        Err(_) => {} // rejected at handshake
+        Ok(plain) => {
+            let probe = plain
+                .try_lock(
+                    &format!("plain:{}", palisade_core::OwnerId::generate().as_uuid()),
+                    &opts,
+                )
+                .await;
+            assert!(
+                probe.is_err(),
+                "plaintext RPC succeeded against TLS listener"
+            );
+        }
+    }
 }

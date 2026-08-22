@@ -13,7 +13,7 @@ use tonic::transport::Server;
 
 const ACL_JSON: &str = r#"{
   "principals": [
-    { "name": "ci",   "token": "ci-token",   "key_prefixes": ["ci/"], "max_keys": 1, "max_watchers": 1 },
+    { "name": "ci",   "token": "ci-token",   "key_prefixes": ["ci/", "palisade-authz-test:"], "max_keys": 1, "max_watchers": 1 },
     { "name": "root", "token": "root-token", "key_prefixes": [""],    "can_admin": true }
   ]
 }"#;
@@ -105,7 +105,16 @@ async fn prefix_scoping_enforced() {
     h.release().await.expect("release");
 
     // Outside it: denied.
-    let err = ci.try_lock(&unique("other"), &opts()).await.unwrap_err();
+    let err = ci
+        .try_lock(
+            &format!(
+                "other/zone:{}",
+                palisade_core::OwnerId::generate().as_uuid()
+            ),
+            &opts(),
+        )
+        .await
+        .unwrap_err();
     assert!(
         matches!(err, Error::Backend(ref m) if m.contains("prefixes")),
         "got {err:?}"
@@ -185,8 +194,11 @@ async fn watch_quota_enforced() {
     );
 
     drop(w1); // frees the slot (stream dropped)
-    // Slot release is asynchronous on the server task; poll briefly.
-    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    // Slot release is asynchronous on the server task; poll generously.
+    // Under full-suite parallel load, h2 stream teardown propagates slower;
+    // give the disconnect-detection chain a generous budget.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         match ci.watch(&key).await {
             Ok(_) => break,

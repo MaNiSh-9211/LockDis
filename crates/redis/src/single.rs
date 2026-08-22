@@ -217,9 +217,7 @@ impl RedisLockManager {
             .query_async(&mut conn)
             .await
             .map_err(|e| Error::Backend(format!("probe failed: {e}")))?;
-        let version = version
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0);
+        let version = version.and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
         Ok((held > 0, version))
     }
 
@@ -237,11 +235,7 @@ impl RedisLockManager {
             .await
             .map_err(|e| Error::Backend(format!("describe failed: {e}")))?;
         let v = version.and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-        Ok((
-            held > 0,
-            v,
-            if ttl > 0 { ttl as u64 } else { 0 },
-        ))
+        Ok((held > 0, v, if ttl > 0 { ttl as u64 } else { 0 }))
     }
 
     /// Admin introspection (ADR 0030): enumerate held keys under a prefix
@@ -482,6 +476,14 @@ async fn detached_release(
 }
 
 impl RedisLockHandle {
+    /// Pass-through servers (ADR 0021) hand ownership to the remote client:
+    /// suppress the Drop-time detached release so the grant survives the
+    /// handler returning. The lock is now the CLIENT'S responsibility.
+    pub fn disarm(&self) {
+        let _ = self.shared.mark_released();
+    }
+
+    /// Runs the ownership-checked release script exactly once.
     async fn run_release(&self) -> Result<i64> {
         let mut conn = self.shared.conn.clone();
         self.shared

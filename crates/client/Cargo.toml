@@ -18,6 +18,7 @@ tokio-stream.workspace = true
 async-trait.workspace = true
 
 [dev-dependencies]
+rustls.workspace = true
 palisade-redis.workspace = true
 palisade-server.workspace = true
 redis.workspace = true

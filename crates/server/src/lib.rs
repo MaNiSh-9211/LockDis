@@ -8,7 +8,7 @@ mod watch_hub;
 
 pub use auth::{Acl, Principal};
 pub use service::{PalisadeService, ServiceConfig};
-pub use sessions::SessionBook;
+pub use sessions::{HbResult, SessionBook};
 pub use watch_hub::WatchHub;
 
 use std::sync::Arc;

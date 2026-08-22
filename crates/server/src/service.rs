@@ -179,6 +179,7 @@ impl LockService for PalisadeService {
                     let _ = h.release().await;
                     return Err(Status::not_found("unknown session"));
                 }
+                h.disarm(); // pass-through: server must NOT release on drop
                 principal.note_key_acquired();
                 Ok(Response::new(granted_outcome(
                     h.owner().as_uuid().to_string(),
@@ -211,6 +212,7 @@ impl LockService for PalisadeService {
                     let _ = h.release().await;
                     return Err(Status::not_found("unknown session"));
                 }
+                h.disarm(); // pass-through: server must NOT release on drop
                 principal.note_key_acquired();
                 Ok(Response::new(granted_outcome(
                     h.owner().as_uuid().to_string(),
@@ -311,9 +313,21 @@ impl LockService for PalisadeService {
         // single per-key poller does all the work.
         tokio::spawn(async move {
             let _guard = guard;
-            while let Some(event) = hub_rx.recv().await {
-                if tx.send(event).await.is_err() {
-                    return;
+            loop {
+                tokio::select! {
+                    event = hub_rx.recv() => {
+                        match event {
+                            Some(ev) => {
+                                if tx.send(ev).await.is_err() {
+                                    return;
+                                }
+                            }
+                            None => return,
+                        }
+                    }
+                    // Client disconnected: free the quota slot NOW instead of
+                    // waiting for the next transition.
+                    _ = tx.closed() => return,
                 }
             }
         });
@@ -344,10 +358,17 @@ impl LockService for PalisadeService {
         request: Request<palisade_proto::HeartbeatRequest>,
     ) -> Result<Response<palisade_proto::HeartbeatResponse>, Status> {
         let req = request.into_inner();
-        if !self.sessions.heartbeat(&req.session_token) {
-            return Err(Status::not_found("unknown or expired session"));
+        match self.sessions.heartbeat(&req.session_token) {
+            crate::sessions::HbResult::Ok => {
+                Ok(Response::new(palisade_proto::HeartbeatResponse {}))
+            }
+            crate::sessions::HbResult::RateLimited => Err(Status::resource_exhausted(
+                "heartbeat exceeds rate floor (ttl/20); use the documented ttl/3 cadence",
+            )),
+            crate::sessions::HbResult::Unknown => {
+                Err(Status::not_found("unknown or expired session"))
+            }
         }
-        Ok(Response::new(palisade_proto::HeartbeatResponse {}))
     }
 
     async fn close_session(

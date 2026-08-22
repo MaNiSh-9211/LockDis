@@ -157,9 +157,22 @@ impl FairLockHandle {
 impl RedisLockManager {
     /// Attempts fair acquisition: grants only if the lock is free AND no
     /// waiter is queued ahead; otherwise joins the queue.
+    /// Attempts fair acquisition with a FRESH identity. One-shot callers
+    /// only — polling loops must reuse one identity (see [`Self::try_lock_fair_for`]).
     pub async fn try_lock_fair(&self, key: &str, options: &LockOptions) -> Result<FairLockHandle> {
-        options.validate()?;
         let owner = OwnerId::generate();
+        self.try_lock_fair_as(key, owner, options).await
+    }
+
+    /// Attempts fair acquisition for a FIXED identity so repeated polls
+    /// keep the same queue entry and heartbeat.
+    async fn try_lock_fair_as(
+        &self,
+        key: &str,
+        owner: OwnerId,
+        options: &LockOptions,
+    ) -> Result<FairLockHandle> {
+        options.validate()?;
         let token = owner.as_uuid().to_string();
         let ttl_ms = options.ttl.as_millis() as u64;
         let queue_key = format!("{{{key}}}:q");
@@ -210,9 +223,10 @@ impl RedisLockManager {
         options: &LockOptions,
         wait: Duration,
     ) -> Result<FairLockHandle> {
+        let owner = OwnerId::generate();
         let deadline = tokio::time::Instant::now() + wait;
         loop {
-            match self.try_lock_fair(key, options).await {
+            match self.try_lock_fair_as(key, owner.clone(), options).await {
                 Ok(h) => return Ok(h),
                 Err(Error::Held { .. }) => {}
                 Err(other) => return Err(other),

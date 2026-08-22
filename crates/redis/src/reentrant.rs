@@ -41,6 +41,7 @@ struct ReentrantShared {
     token: String,
     owner: OwnerId,
     fence: FencingToken,
+    ttl: Duration,
     gone: AtomicBool,
 }
 
@@ -108,7 +109,7 @@ impl ReentrantLockHandle {
             .release_script
             .key(&self.shared.key)
             .arg(&self.shared.token)
-            .arg(0_i64)
+            .arg(self.shared.ttl.as_millis() as u64)
             .invoke_async(&mut conn)
             .await
             .map_err(|e| Error::Backend(format!("reentrant release failed: {e}")))?;
@@ -218,6 +219,7 @@ impl RedisLockManager {
                     token,
                     owner,
                     fence: FencingToken::new(fence as u64),
+                    ttl: options.ttl,
                     gone: AtomicBool::new(false),
                 }),
             }),

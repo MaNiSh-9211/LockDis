@@ -24,6 +24,7 @@ struct RwShared {
     key: String,
     token: String,
     fence: FencingToken,
+    ttl: Duration,
     gone: AtomicBool,
     write_mode: bool,
 }
@@ -159,7 +160,7 @@ impl RwReadHandle {
             .shared
             .read_release_script
             .key(&self.shared.key)
-            .arg(0_i64)
+            .arg(self.shared.ttl.as_millis() as u64)
             .invoke_async(&mut conn)
             .await
             .map_err(|e| Error::Backend(format!("rw read-release failed: {e}")))?;
@@ -234,6 +235,7 @@ impl RedisLockManager {
                 key: key.to_owned(),
                 token,
                 fence: FencingToken::new(fence as u64),
+                ttl: options.ttl,
                 gone: AtomicBool::new(false),
                 write_mode: false,
             }),
@@ -273,6 +275,7 @@ impl RedisLockManager {
                 key: key.to_owned(),
                 token,
                 fence: FencingToken::new(fence as u64),
+                ttl: options.ttl,
                 gone: AtomicBool::new(false),
                 write_mode: true,
             }),

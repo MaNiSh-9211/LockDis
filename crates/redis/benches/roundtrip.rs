@@ -8,6 +8,17 @@ use criterion::{Criterion, Throughput};
 use palisade_core::LockHandle;
 use palisade_redis::{RedisConfig, RedisLockManager};
 
+fn ns() -> String {
+    format!(
+        "palisade-bench/{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    )
+}
+
 fn url() -> String {
     std::env::var("PALISADE_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into())
 }
@@ -25,19 +36,18 @@ fn bench_acquire_release(c: &mut Criterion) {
     group.bench_function("acquire_release", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let h = mgr.try_lock("palisade-bench:key").await.expect("grant");
+                let h = mgr.try_lock(&format!("{}/key", ns())).await.expect("grant");
                 h.release().await.expect("release");
             });
         });
     });
 
     group.bench_function("try_lock_held_fast_fail", |b| {
-        let _holder = rt
-            .block_on(mgr.try_lock("palisade-bench:held"))
-            .expect("holder");
+        let held_key = format!("{}/held", ns());
+        let _holder = rt.block_on(mgr.try_lock(&held_key)).expect("holder");
         b.iter(|| {
             rt.block_on(async {
-                let _ = mgr.try_lock("palisade-bench:held").await;
+                let _ = mgr.try_lock(&held_key).await;
             });
         });
     });
@@ -45,7 +55,7 @@ fn bench_acquire_release(c: &mut Criterion) {
     group.bench_function("extend", |b| {
         let h = rt.block_on(async {
             mgr.try_lock_with(
-                "palisade-bench:ext",
+                &format!("{}/ext", ns()),
                 &palisade_core::LockOptions::default().with_ttl(Duration::from_secs(60)),
             )
             .await

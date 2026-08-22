@@ -10,6 +10,7 @@
 
 pub mod config;
 pub mod fair;
+pub mod latch;
 pub mod multi;
 pub mod redlock;
 pub mod reentrant;
@@ -20,6 +21,7 @@ pub mod single;
 
 pub use config::RedisConfig;
 pub use fair::FairLockHandle;
+pub use latch::RedisCountDownLatch;
 pub use multi::MultiLockHandle;
 pub use redlock::{RedlockConfig, RedlockHandle, RedlockManager};
 pub use reentrant::ReentrantLockHandle;
