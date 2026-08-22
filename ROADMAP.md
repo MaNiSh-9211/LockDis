@@ -24,7 +24,7 @@ Chaos runs are gated behind `PALISADE_CHAOS=1` + docker compose lab
 |---|---|---|---|
 | B1 | `DescribeKey(key)` RPC -> {held, version, ttl_ms} | Introspection for authorized callers | ✅ |
 | B2 | Versioned watch events (fence as per-key order token) | Ordered, dedupable event streams - tested | ✅ |
-| B3 | Heartbeat rate-limiting per session (token bucket) | DoS containment for #2's control plane | 🔶 |
+| B3 | Heartbeat rate floor (ttl/20 min spacing per session) | Control-plane DoS containment - burst tested | ✅ |
 
 ## Track C — Ecosystem & quality
 
