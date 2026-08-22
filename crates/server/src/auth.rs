@@ -134,12 +134,13 @@ impl Principal {
         self.may(key, self.cfg.can_admin)
     }
 
-    pub fn note_key_acquired(&self) {
-        self.held_keys.fetch_add(1, Ordering::AcqRel);
+    /// Concurrent-key ceiling for this principal (0 = unlimited).
+    pub fn max_keys(&self) -> u32 {
+        self.cfg.max_keys
     }
 
-    pub fn note_key_released(&self) {
-        self.held_keys.fetch_sub(1, Ordering::AcqRel);
+    pub fn note_watcher_denial(&self) {
+        self.watchers.fetch_sub(1, Ordering::AcqRel);
     }
 }
 

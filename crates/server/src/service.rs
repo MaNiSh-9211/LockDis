@@ -49,6 +49,7 @@ pub struct PalisadeService {
     sessions: Arc<crate::sessions::SessionBook>,
     acl: crate::auth::Acl,
     hub: crate::watch_hub::WatchHub,
+    registry: Arc<crate::registry::HeldRegistry>,
 }
 
 impl PalisadeService {
@@ -58,6 +59,7 @@ impl PalisadeService {
         let sessions = Arc::new(crate::sessions::SessionBook::new(manager.clone()));
         Self {
             hub: crate::watch_hub::WatchHub::new((*manager).clone()),
+            registry: Arc::new(crate::registry::HeldRegistry::new()),
             manager,
             config,
             ready: Arc::new(std::sync::atomic::AtomicBool::new(true)),
@@ -179,8 +181,17 @@ impl LockService for PalisadeService {
                     let _ = h.release().await;
                     return Err(Status::not_found("unknown session"));
                 }
-                h.disarm(); // pass-through: server must NOT release on drop
-                principal.note_key_acquired();
+                if !self
+                    .registry
+                    .try_acquire(&req.key, principal.name(), principal.max_keys())
+                {
+                    let _ = h.release().await;
+                    return Err(Status::resource_exhausted(format!(
+                        "principal `{}` hit max_keys",
+                        principal.name()
+                    )));
+                }
+                h.disarm(); // pass-through: ownership now belongs to the client
                 Ok(Response::new(granted_outcome(
                     h.owner().as_uuid().to_string(),
                     h.fence().value(),
@@ -212,8 +223,17 @@ impl LockService for PalisadeService {
                     let _ = h.release().await;
                     return Err(Status::not_found("unknown session"));
                 }
-                h.disarm(); // pass-through: server must NOT release on drop
-                principal.note_key_acquired();
+                if !self
+                    .registry
+                    .try_acquire(&req.key, principal.name(), principal.max_keys())
+                {
+                    let _ = h.release().await;
+                    return Err(Status::resource_exhausted(format!(
+                        "principal `{}` hit max_keys",
+                        principal.name()
+                    )));
+                }
+                h.disarm(); // pass-through: ownership now belongs to the client
                 Ok(Response::new(granted_outcome(
                     h.owner().as_uuid().to_string(),
                     h.fence().value(),
@@ -243,7 +263,7 @@ impl LockService for PalisadeService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         if released {
-            principal.note_key_released();
+            self.registry.release(&req.key);
         }
         let response = if released {
             UnlockResponse {
@@ -414,12 +434,17 @@ impl LockService for PalisadeService {
             .force_unlock(&req.key)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+        // Free the ORIGINAL holder's quota slot, not the admin's.
+        let victim = self.registry.release(&req.key);
         crate::auth::Acl::audit(
             principal.name(),
             "force-unlock",
             &req.key,
             if released { "released" } else { "key-absent" },
         );
+        if let Some(v) = &victim {
+            tracing::info!(victim_principal = %v, "force-unlock freed victim quota slot");
+        }
         Ok(Response::new(palisade_proto::UnlockForceResponse {
             released,
         }))

@@ -133,19 +133,26 @@ impl RedlockManager {
         let mut acquired: Vec<usize> = Vec::with_capacity(self.nodes.len());
         for (i, node) in self.nodes.iter().enumerate() {
             let mut conn = node.conn.clone();
-            let res: std::result::Result<(i64, i64), _> = self
-                .acquire_script
-                .key(key)
-                .key(crate::single::fence_key_for(key))
-                .arg(&token)
-                .arg(ttl_ms)
-                .arg(fence_ttl_ms)
-                .invoke_async(&mut conn)
+            // Per-node bound: a blackholed member eats at most this slice of
+            // the validity budget, never the whole round.
+            let slice = Duration::from_millis((ttl_ms / 4).max(100));
+            let res: std::result::Result<std::result::Result<(i64, i64), _>, _> =
+                tokio::time::timeout(slice, async {
+                    self.acquire_script
+                        .key(key)
+                        .key(crate::single::fence_key_for(key))
+                        .arg(&token)
+                        .arg(ttl_ms)
+                        .arg(fence_ttl_ms)
+                        .invoke_async(&mut conn)
+                        .await
+                })
                 .await;
             match res {
-                Ok((1 | 2, _)) => acquired.push(i),
-                Ok(_) => {}
-                Err(e) => return Err(Error::Backend(format!("redlock node {i}: {e}"))),
+                Ok(Ok((1 | 2, _))) => acquired.push(i),
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => return Err(Error::Backend(format!("redlock node {i}: {e}"))),
+                Err(_) => {} // per-node slice elapsed: treat as failed node
             }
         }
 

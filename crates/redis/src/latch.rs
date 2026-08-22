@@ -116,10 +116,9 @@ impl RedisCountDownLatch {
             .await
             .map_err(|e| Error::Backend(format!("latch op failed: {e}")))?;
         if v < 0 {
-            return Err(Error::Lost {
-                key: self.key.clone(),
-                fence: 0,
-            });
+            // A vanished latch (TTL lapse / manual flush) counts as fully
+            // consumed: NX-init means it only ever counted DOWN.
+            return Ok(0);
         }
         Ok(v as u64)
     }

@@ -2,11 +2,13 @@
 //! embedders. See `main.rs` for the standalone binary.
 
 mod auth;
+mod registry;
 mod service;
 mod sessions;
 mod watch_hub;
 
 pub use auth::{Acl, Principal};
+pub use registry::HeldRegistry;
 pub use service::{PalisadeService, ServiceConfig};
 pub use sessions::{HbResult, SessionBook};
 pub use watch_hub::WatchHub;

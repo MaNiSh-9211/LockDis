@@ -173,10 +173,26 @@ impl RedisLockManager {
     ) -> Result<RedisLockHandle> {
         let deadline = Instant::now().checked_add(wait);
         loop {
-            match self.try_lock_with(key, options).await {
-                Ok(handle) => return Ok(handle),
-                Err(Error::Held { .. }) => {}
-                Err(other) => return Err(other),
+            // Hard bound per attempt: a blackholed store must not stretch
+            // the caller past its own wait budget (EDGE_CASES #4).
+            let remaining = deadline
+                .and_then(|d| d.checked_duration_since(Instant::now()))
+                .unwrap_or(Duration::from_secs(5));
+            let attempt = tokio::time::timeout(
+                remaining.min(Duration::from_secs(2)),
+                self.try_lock_with(key, options),
+            );
+            match attempt.await {
+                Ok(inner) => match inner {
+                    Ok(handle) => return Ok(handle),
+                    Err(Error::Held { .. }) => {}
+                    Err(other) => return Err(other),
+                },
+                Err(_elapsed) => {
+                    return Err(Error::Timeout {
+                        key: key.to_owned(),
+                    });
+                }
             }
             let sleep_for = match deadline {
                 Some(d) => {
