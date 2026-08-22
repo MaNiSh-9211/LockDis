@@ -205,6 +205,41 @@ impl RedisLockManager {
         Ok(n > 0)
     }
 
+    /// Admin introspection (ADR 0030): enumerate held keys under a prefix
+    /// with their remaining TTLs. Uses SCAN (non-blocking) + PTTL.
+    pub async fn scan_held(&self, prefix: &str) -> Result<Vec<(String, u64)>> {
+        let mut conn = self.conn.clone();
+        let pattern = format!("{prefix}*");
+        let mut out = Vec::new();
+        let mut cursor: u64 = 0;
+        loop {
+            let (next, batch): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(500)
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| Error::Backend(format!("scan failed: {e}")))?;
+            cursor = next;
+            for key in batch {
+                let ttl: i64 = redis::cmd("PTTL")
+                    .arg(&key)
+                    .query_async(&mut conn)
+                    .await
+                    .unwrap_or(-2);
+                if ttl > 0 {
+                    out.push((key, ttl as u64));
+                }
+            }
+            if cursor == 0 {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
     /// Admin break-glass: deletes the key with NO ownership check.
     /// Caller must be authorized upstream (ACL admin + audit).
     pub async fn force_unlock(&self, key: &str) -> Result<bool> {

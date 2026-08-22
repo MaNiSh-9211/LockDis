@@ -11,7 +11,7 @@ use std::time::Duration;
 use palisade_core::{LockHandle, LockOptions};
 use palisade_proto::lock_service_server::LockService;
 use palisade_proto::{
-    Acquired, ExtendRequest, ExtendResponse, Extended, Freed, Granted, Held, LockEvent,
+    ExtendRequest, ExtendResponse, Extended, Granted, Held, LockEvent,
     LockOptions as LockOptionsPb, LockOutcome, Lost, Released, TimedOut, TryLockForRequest,
     TryLockRequest, UnlockRequest, UnlockResponse, WatchRequest,
 };
@@ -48,6 +48,7 @@ pub struct PalisadeService {
     ready: Arc<std::sync::atomic::AtomicBool>,
     sessions: Arc<crate::sessions::SessionBook>,
     acl: crate::auth::Acl,
+    hub: crate::watch_hub::WatchHub,
 }
 
 impl PalisadeService {
@@ -56,6 +57,7 @@ impl PalisadeService {
         let manager = Arc::new(manager);
         let sessions = Arc::new(crate::sessions::SessionBook::new(manager.clone()));
         Self {
+            hub: crate::watch_hub::WatchHub::new((*manager).clone()),
             manager,
             config,
             ready: Arc::new(std::sync::atomic::AtomicBool::new(true)),
@@ -301,32 +303,17 @@ impl LockService for PalisadeService {
         let principal = self.principal(&request)?;
         let req = request.into_inner();
         let guard = principal.check_watch(&req.key)?;
-        let manager = self.manager.clone();
+        let _ = WATCH_POLL;
+        let mut hub_rx = self.hub.subscribe(&req.key).await;
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<LockEvent, Status>>(16);
 
+        // Thin per-subscriber forwarder: no store polling here — the hub's
+        // single per-key poller does all the work.
         tokio::spawn(async move {
-            let _guard = guard; // quota slot held for the stream's lifetime
-            let mut last_held = false;
-            loop {
-                tokio::time::sleep(WATCH_POLL).await;
-                let held = match manager.probe_held(&req.key).await {
-                    Ok(held) => held,
-                    Err(_) => continue,
-                };
-                if held != last_held {
-                    let event = if held {
-                        LockEvent {
-                            event: Some(palisade_proto::lock_event::Event::Acquired(Acquired {})),
-                        }
-                    } else {
-                        LockEvent {
-                            event: Some(palisade_proto::lock_event::Event::Freed(Freed {})),
-                        }
-                    };
-                    if tx.send(Ok(event)).await.is_err() {
-                        return;
-                    }
-                    last_held = held;
+            let _guard = guard;
+            while let Some(event) = hub_rx.recv().await {
+                if tx.send(event).await.is_err() {
+                    return;
                 }
             }
         });
@@ -395,5 +382,40 @@ impl LockService for PalisadeService {
         Ok(Response::new(palisade_proto::UnlockForceResponse {
             released,
         }))
+    }
+
+    type ListLocksStream = ReceiverStream<Result<palisade_proto::KeyState, Status>>;
+
+    async fn list_locks(
+        &self,
+        request: Request<palisade_proto::ListLocksRequest>,
+    ) -> Result<Response<Self::ListLocksStream>, Status> {
+        let principal = self.principal(&request)?;
+        let req = request.into_inner();
+        principal.check_admin(&req.prefix)?;
+        crate::auth::Acl::audit(principal.name(), "list-locks", &req.prefix, "ok");
+
+        let manager = self.manager.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move {
+            match manager.scan_held(&req.prefix).await {
+                Ok(entries) => {
+                    for (key, ttl_ms) in entries {
+                        let state = palisade_proto::KeyState {
+                            key,
+                            held: true,
+                            ttl_ms,
+                        };
+                        if tx.send(Ok(state)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Status::internal(e.to_string()))).await;
+                }
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }

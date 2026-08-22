@@ -24,6 +24,8 @@ service LockService {
   rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
   // Admin-only break-glass release without ownership check. Audited (ADR 0028).
   rpc UnlockForce(UnlockForceRequest) returns (UnlockForceResponse);
+  // Admin introspection: enumerate held keys under a prefix (ADR 0030).
+  rpc ListLocks(ListLocksRequest) returns (stream KeyState);
 }
 
 message LockOptions {
@@ -135,6 +137,16 @@ message UnlockForceRequest {
 
 message UnlockForceResponse {
   bool released = 1;
+}
+
+message ListLocksRequest {
+  string prefix = 1;
+}
+
+message KeyState {
+  string key = 1;
+  bool held = 2;
+  uint64 ttl_ms = 3;
 }
 
 message Acquired {}

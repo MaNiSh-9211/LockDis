@@ -1,13 +1,15 @@
-﻿//! Palisade gRPC server library: service wiring reusable from tests and
+//! Palisade gRPC server library: service wiring reusable from tests and
 //! embedders. See `main.rs` for the standalone binary.
 
 mod auth;
 mod service;
 mod sessions;
+mod watch_hub;
 
 pub use auth::{Acl, Principal};
 pub use service::{PalisadeService, ServiceConfig};
 pub use sessions::SessionBook;
+pub use watch_hub::WatchHub;
 
 use std::sync::Arc;
 

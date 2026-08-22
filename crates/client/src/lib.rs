@@ -105,6 +105,28 @@ impl PalisadeClient {
         Ok(resp.released)
     }
 
+    /// Admin introspection: enumerate held keys under a prefix (ADR 0030).
+    pub async fn list_locks(&self, prefix: &str) -> Result<Vec<palisade_proto::KeyState>> {
+        let mut grpc = self.inner.grpc.clone();
+        let mut stream = grpc
+            .list_locks(request_with_auth(
+                palisade_proto::ListLocksRequest {
+                    prefix: prefix.to_owned(),
+                },
+                &self.inner.bearer,
+            ))
+            .await
+            .map_err(status_to_error)?
+            .into_inner();
+
+        let mut out = Vec::new();
+        use tokio_stream::StreamExt;
+        while let Some(item) = stream.next().await {
+            out.push(item.map_err(status_to_error)?);
+        }
+        Ok(out)
+    }
+
     /// Attaches a [`palisade_testing::HistoryRecorder`] so every subsequent
     /// operation lands in a checkable timeline.
     pub fn with_history(mut self, recorder: palisade_testing::HistoryRecorder) -> Self {

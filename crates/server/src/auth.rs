@@ -81,11 +81,13 @@ impl Principal {
             if allowed {
                 return Ok(());
             }
+            metrics::counter!("palisade_authz_denials_total").increment(1);
             return Err(tonic::Status::permission_denied(format!(
                 "principal `{}` lacks permission for `{key}`",
                 self.name
             )));
         }
+        metrics::counter!("palisade_authz_denials_total").increment(1);
         Err(tonic::Status::permission_denied(format!(
             "principal `{}` may not touch keys outside its prefixes (`{key}`)",
             self.name
@@ -232,11 +234,10 @@ impl Acl {
             .ok_or_else(|| {
                 tonic::Status::unauthenticated("missing authorization: Bearer <token>")
             })?;
-        self.inner
-            .by_token
-            .get(token)
-            .cloned()
-            .ok_or_else(|| tonic::Status::unauthenticated("unknown bearer token"))
+        self.inner.by_token.get(token).cloned().ok_or_else(|| {
+            metrics::counter!("palisade_authz_denials_total").increment(1);
+            tonic::Status::unauthenticated("unknown bearer token")
+        })
     }
 
     /// Audit line helper — denials and admin ops must be attributable.

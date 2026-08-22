@@ -31,6 +31,11 @@ Every feature and architectural decision gets an ADR here: **what we picked, why
 | [0023](0023-health-drain-lifecycle.md) | Readiness & drain: readiness flag + health protocol | Accepted |
 | [0024](0024-mtls-optional-ring-tls.md) | Transport security: optional mTLS, ring-based TLS stack | Accepted |
 | [0025](0025-bespoke-deterministic-simulation.md) | Deterministic simulation: bespoke seeded scheduler | Accepted |
+| [0026](0026-consensus-core-etcd-backend.md) | Consensus core: first-class etcd backend | Accepted |
+| [0027](0027-server-sessions.md) | Server-authoritative sessions | Accepted |
+| [0028](0028-authz-quotas-audit.md) | Authorization & multi-tenancy: ACLs, quotas, audit | Accepted |
+| [0029](0029-watch-fanout-hub.md) | Watch fan-out: hub with one poller per key | Accepted |
+| [0030](0030-admin-introspection-durability.md) | Admin introspection + durability guidance | Accepted |
 
 ## Template
 
