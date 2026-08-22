@@ -1,12 +1,13 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/palisade-core",
-    "crates/palisade-redis",
-    "crates/palisade-proto",
-    "crates/palisade-server",
-    "crates/palisade-client",
-    "crates/palisade-testing",
+    "crates/core",
+    "crates/redis",
+    "crates/etcd",
+    "crates/proto",
+    "crates/server",
+    "crates/client",
+    "crates/testing",
 ]
 
 [workspace.package]
@@ -18,11 +19,12 @@ repository = "https://example.com/palisade"
 authors = ["Palisade Contributors"]
 
 [workspace.dependencies]
-palisade-core = { path = "crates/palisade-core" }
-palisade-redis = { path = "crates/palisade-redis" }
-palisade-proto = { path = "crates/palisade-proto" }
-palisade-server = { path = "crates/palisade-server" }
-palisade-testing = { path = "crates/palisade-testing" }
+palisade-core = { path = "crates/core" }
+palisade-redis = { path = "crates/redis" }
+palisade-etcd = { path = "crates/etcd" }
+palisade-proto = { path = "crates/proto" }
+palisade-server = { path = "crates/server" }
+palisade-testing = { path = "crates/testing" }
 thiserror = "2"
 uuid = { version = "1", features = ["v7"] }
 tokio = { version = "1", features = ["full"] }
@@ -44,6 +46,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rcgen = "0.13"
 proptest = "1"
 criterion = { version = "0.7", features = ["async_tokio"] }
+etcd-client = "0.19"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

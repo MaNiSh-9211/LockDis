@@ -205,6 +205,18 @@ impl RedisLockManager {
         Ok(n > 0)
     }
 
+    /// Admin break-glass: deletes the key with NO ownership check.
+    /// Caller must be authorized upstream (ACL admin + audit).
+    pub async fn force_unlock(&self, key: &str) -> Result<bool> {
+        let mut conn = self.conn.clone();
+        let n: i64 = redis::cmd("DEL")
+            .arg(key)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| Error::Backend(format!("force unlock failed: {e}")))?;
+        Ok(n > 0)
+    }
+
     /// Token-level release for remote callers (gRPC pass-through): runs the
     /// ownership-checked release script for an arbitrary token without a
     /// local handle. `Ok(false)` means the token no longer owns the lock.

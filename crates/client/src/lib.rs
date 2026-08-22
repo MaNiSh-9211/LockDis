@@ -27,8 +27,15 @@ const MAX_CONSECUTIVE_RENEW_FAILURES: u32 = 2;
 /// Connection to a `palisade-server` endpoint. Cheap to clone.
 #[derive(Clone)]
 pub struct PalisadeClient {
+    inner: Arc<ClientInner>,
+}
+
+#[derive(Clone)]
+struct ClientInner {
     grpc: LockServiceClient<Channel>,
+    bearer: Option<String>,
     history: Option<palisade_testing::HistoryRecorder>,
+    session: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl std::fmt::Debug for PalisadeClient {
@@ -50,6 +57,16 @@ fn status_to_error(status: tonic::Status) -> Error {
     Error::Backend(format!("rpc failed: {status}"))
 }
 
+fn request_with_auth<T>(msg: T, token: &Option<String>) -> Request<T> {
+    let mut req = Request::new(msg);
+    if let Some(t) = token {
+        if let Ok(v) = format!("Bearer {t}").parse::<tonic::metadata::AsciiMetadataValue>() {
+            req.metadata_mut().insert("authorization", v);
+        }
+    }
+    req
+}
+
 fn options_pb(options: &LockOptions) -> OptionsPb {
     OptionsPb {
         ttl_ms: options.ttl.as_millis() as u64,
@@ -62,16 +79,125 @@ impl PalisadeClient {
     pub async fn connect(endpoint: impl Into<String>) -> Result<Self> {
         let channel = Self::channel(endpoint.into(), None).await?;
         Ok(Self {
-            grpc: LockServiceClient::new(channel),
-            history: None,
+            inner: Arc::new(ClientInner {
+                grpc: LockServiceClient::new(channel),
+                history: None,
+                bearer: None,
+                session: Arc::new(std::sync::Mutex::new(None)),
+            }),
         })
+    }
+
+    /// Admin break-glass: releases `key` without ownership check. Requires
+    /// a principal with the admin permission server-side; audited there.
+    pub async fn unlock_force(&self, key: &str) -> Result<bool> {
+        let mut grpc = self.inner.grpc.clone();
+        let resp = grpc
+            .unlock_force(request_with_auth(
+                palisade_proto::UnlockForceRequest {
+                    key: key.to_owned(),
+                },
+                &self.inner.bearer,
+            ))
+            .await
+            .map_err(status_to_error)?
+            .into_inner();
+        Ok(resp.released)
     }
 
     /// Attaches a [`palisade_testing::HistoryRecorder`] so every subsequent
     /// operation lands in a checkable timeline.
     pub fn with_history(mut self, recorder: palisade_testing::HistoryRecorder) -> Self {
-        self.history = Some(recorder);
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.history = Some(recorder);
         self
+    }
+
+    /// Attaches a bearer token used for authorization on every call
+    /// (ADR 0028). Ignored by servers running in open mode.
+    pub fn with_token(mut self, token: impl Into<String>) -> Self {
+        Arc::make_mut(&mut self.inner).bearer = Some(token.into());
+        self
+    }
+
+    /// Opens a server-authoritative session (ADR 0027): locks acquired by
+    /// this client are bound to it, and the server releases them when
+    /// heartbeats stop — so a crashed process's locks die within
+    /// `ttl + sweep`, not after their full lease TTL. Spawns the heartbeat
+    /// task at `ttl/3` cadence; it exits when the last clone of this client
+    /// is dropped.
+    pub async fn attach_session(&self, client_id: &str, ttl: Duration) -> Result<()> {
+        let mut grpc = self.inner.grpc.clone();
+        let resp = grpc
+            .register_session(request_with_auth(
+                palisade_proto::RegisterSessionRequest {
+                    client_id: client_id.to_owned(),
+                    ttl_ms: ttl.as_millis() as u64,
+                },
+                &self.inner.bearer,
+            ))
+            .await
+            .map_err(status_to_error)?
+            .into_inner();
+
+        *self.inner.session.lock().expect("session lock") = Some(resp.session_token.clone());
+
+        let weak = Arc::downgrade(&self.inner);
+        let token = resp.session_token;
+        let cadence = (ttl / 3).max(Duration::from_millis(500));
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(cadence).await;
+                let Some(inner) = weak.upgrade() else { return };
+                let current = inner.session.lock().expect("session lock").clone();
+                match current {
+                    Some(t) if t == token => {
+                        let mut grpc = inner.grpc.clone();
+                        if grpc
+                            .heartbeat(request_with_auth(
+                                palisade_proto::HeartbeatRequest { session_token: t },
+                                &inner.bearer,
+                            ))
+                            .await
+                            .is_err()
+                        {
+                            // Network blips tolerated; the server sweep only
+                            // fires after the full session TTL of silence.
+                        }
+                    }
+                    _ => return, // closed or replaced
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Closes the session now: the server immediately releases every lock
+    /// bound to it.
+    pub async fn close_session(&self) -> Result<u32> {
+        let token = self.inner.session.lock().expect("session lock").take();
+        let Some(token) = token else { return Ok(0) };
+        let mut grpc = self.inner.grpc.clone();
+        let resp = grpc
+            .close_session(request_with_auth(
+                palisade_proto::CloseSessionRequest {
+                    session_token: token,
+                },
+                &self.inner.bearer,
+            ))
+            .await
+            .map_err(status_to_error)?
+            .into_inner();
+        Ok(resp.released_locks)
+    }
+
+    fn session_token(&self) -> String {
+        self.inner
+            .session
+            .lock()
+            .expect("session lock")
+            .clone()
+            .unwrap_or_default()
     }
 
     /// Connects over mutual TLS. `ca_pem` verifies the server; `cert_pem`/
@@ -87,8 +213,12 @@ impl PalisadeClient {
             .identity(tonic::transport::Identity::from_pem(cert_pem, key_pem));
         let channel = Self::channel(endpoint.into(), Some(tls)).await?;
         Ok(Self {
-            grpc: LockServiceClient::new(channel),
-            history: None,
+            inner: Arc::new(ClientInner {
+                grpc: LockServiceClient::new(channel),
+                history: None,
+                bearer: None,
+                session: Arc::new(std::sync::Mutex::new(None)),
+            }),
         })
     }
 
@@ -114,24 +244,26 @@ impl PalisadeClient {
         let request = TryLockRequest {
             key: key.to_owned(),
             options: Some(options_pb(options)),
+            session: self.session_token(),
         };
         let outcome = self
+            .inner
             .grpc
             .clone()
-            .try_lock(Request::new(request))
+            .try_lock(request_with_auth(request, &self.inner.bearer))
             .await
             .map_err(status_to_error)?
             .into_inner();
 
         match outcome.result {
             Some(palisade_proto::lock_outcome::Result::Granted(g)) => {
-                if let Some(rec) = &self.history {
+                if let Some(rec) = &self.inner.history {
                     rec.record(key, OpKind::TryAcquire, true, g.fencing_token, started);
                 }
                 Ok(self.make_handle(key, g.token, g.fencing_token, options))
             }
             Some(palisade_proto::lock_outcome::Result::Held(_)) => {
-                if let Some(rec) = &self.history {
+                if let Some(rec) = &self.inner.history {
                     rec.record(key, OpKind::TryAcquire, false, 0, started);
                 }
                 Err(Error::Held {
@@ -154,24 +286,26 @@ impl PalisadeClient {
             key: key.to_owned(),
             options: Some(options_pb(options)),
             wait_ms: wait.as_millis() as u64,
+            session: self.session_token(),
         };
         let outcome = self
+            .inner
             .grpc
             .clone()
-            .try_lock_for(Request::new(request))
+            .try_lock_for(request_with_auth(request, &self.inner.bearer))
             .await
             .map_err(status_to_error)?
             .into_inner();
 
         match outcome.result {
             Some(palisade_proto::lock_outcome::Result::Granted(g)) => {
-                if let Some(rec) = &self.history {
+                if let Some(rec) = &self.inner.history {
                     rec.record(key, OpKind::TryAcquire, true, g.fencing_token, started);
                 }
                 Ok(self.make_handle(key, g.token, g.fencing_token, options))
             }
             Some(palisade_proto::lock_outcome::Result::Held(_)) => {
-                if let Some(rec) = &self.history {
+                if let Some(rec) = &self.inner.history {
                     rec.record(key, OpKind::TryAcquire, false, 0, started);
                 }
                 Err(Error::Held {
@@ -179,7 +313,7 @@ impl PalisadeClient {
                 })
             }
             Some(palisade_proto::lock_outcome::Result::TimedOut(_)) => {
-                if let Some(rec) = &self.history {
+                if let Some(rec) = &self.inner.history {
                     rec.record(key, OpKind::TryAcquire, false, 0, started);
                 }
                 Err(Error::Timeout {
@@ -192,11 +326,14 @@ impl PalisadeClient {
 
     /// Subscribes to anonymized state changes for `key`.
     pub async fn watch(&self, key: &str) -> Result<ReceiverStream<WatchEvent>> {
-        let mut grpc = self.grpc.clone();
+        let mut grpc = self.inner.grpc.clone();
         let mut stream = grpc
-            .watch(Request::new(WatchRequest {
-                key: key.to_owned(),
-            }))
+            .watch(request_with_auth(
+                WatchRequest {
+                    key: key.to_owned(),
+                },
+                &self.inner.bearer,
+            ))
             .await
             .map_err(status_to_error)?
             .into_inner();
@@ -227,8 +364,9 @@ impl PalisadeClient {
     ) -> RemoteLockHandle {
         let ttl = options.ttl;
         let shared = Arc::new(RemoteShared {
-            grpc: self.grpc.clone(),
-            history: self.history.clone(),
+            grpc: self.inner.grpc.clone(),
+            bearer: self.inner.bearer.clone(),
+            history: self.inner.history.clone(),
             key: key.to_owned(),
             token,
             fence: FencingToken::new(fence_value),
@@ -247,6 +385,7 @@ impl PalisadeClient {
 
 struct RemoteShared {
     grpc: LockServiceClient<Channel>,
+    bearer: Option<String>,
     history: Option<palisade_testing::HistoryRecorder>,
     key: String,
     token: String,
@@ -272,11 +411,14 @@ impl RemoteShared {
         let started = std::time::Instant::now();
         let mut grpc = self.grpc.clone();
         let response = grpc
-            .extend(Request::new(ExtendRequest {
-                key: self.key.clone(),
-                token: self.token.clone(),
-                ttl_ms: ttl.as_millis() as u64,
-            }))
+            .extend(request_with_auth(
+                ExtendRequest {
+                    key: self.key.clone(),
+                    token: self.token.clone(),
+                    ttl_ms: ttl.as_millis() as u64,
+                },
+                &self.bearer,
+            ))
             .await
             .map_err(status_to_error)?
             .into_inner();
@@ -294,10 +436,13 @@ impl RemoteShared {
         let started = std::time::Instant::now();
         let mut grpc = self.grpc.clone();
         let response = grpc
-            .unlock(Request::new(UnlockRequest {
-                key: self.key.clone(),
-                token: self.token.clone(),
-            }))
+            .unlock(request_with_auth(
+                UnlockRequest {
+                    key: self.key.clone(),
+                    token: self.token.clone(),
+                },
+                &self.bearer,
+            ))
             .await
             .map_err(status_to_error)?
             .into_inner();
@@ -333,6 +478,7 @@ impl Drop for RemoteShared {
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let shared = RemoteShared {
                 grpc: self.grpc.clone(),
+                bearer: self.bearer.clone(),
                 history: None,
                 key: self.key.clone(),
                 token: self.token.clone(),

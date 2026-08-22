@@ -46,16 +46,41 @@ pub struct PalisadeService {
     manager: Arc<RedisLockManager>,
     config: ServiceConfig,
     ready: Arc<std::sync::atomic::AtomicBool>,
+    sessions: Arc<crate::sessions::SessionBook>,
+    acl: crate::auth::Acl,
 }
 
 impl PalisadeService {
-    /// Binds the service to a connected backend.
+    /// Binds the service to a connected backend (open-mode authorization).
     pub fn new(manager: RedisLockManager, config: ServiceConfig) -> Self {
+        let manager = Arc::new(manager);
+        let sessions = Arc::new(crate::sessions::SessionBook::new(manager.clone()));
         Self {
-            manager: Arc::new(manager),
+            manager,
             config,
             ready: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            sessions,
+            acl: crate::auth::Acl::open(),
         }
+    }
+
+    /// Replaces open mode with a real ACL set.
+    pub fn with_acl(mut self, acl: crate::auth::Acl) -> Self {
+        self.acl = acl;
+        self
+    }
+
+    fn principal<T>(&self, request: &Request<T>) -> Result<crate::auth::Principal, Status> {
+        let bearer = request
+            .metadata()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok());
+        self.acl.resolve(bearer)
+    }
+
+    /// The shared session book (for the sweeper and introspection).
+    pub fn session_book(&self) -> Arc<crate::sessions::SessionBook> {
+        self.sessions.clone()
     }
 
     /// Flips readiness. While draining, new grants are refused with
@@ -137,14 +162,28 @@ impl LockService for PalisadeService {
         request: Request<TryLockRequest>,
     ) -> Result<Response<LockOutcome>, Status> {
         self.check_ready()?;
+        let principal = self.principal(&request)?;
         let req = request.into_inner();
         let opts = options_from_pb(req.options.as_ref(), &self.config)?;
+        principal.check_lock(&req.key)?;
         match self.manager.try_lock_with(&req.key, &opts).await {
-            Ok(h) => Ok(Response::new(granted_outcome(
-                h.owner().as_uuid().to_string(),
-                h.fence().value(),
-                opts.ttl.as_millis() as u64,
-            ))),
+            Ok(h) => {
+                if !req.session.is_empty()
+                    && !self
+                        .sessions
+                        .bind(&req.session, &req.key, &h.owner().as_uuid().to_string())
+                {
+                    // Session died between register and lock: undo the grant.
+                    let _ = h.release().await;
+                    return Err(Status::not_found("unknown session"));
+                }
+                principal.note_key_acquired();
+                Ok(Response::new(granted_outcome(
+                    h.owner().as_uuid().to_string(),
+                    h.fence().value(),
+                    opts.ttl.as_millis() as u64,
+                )))
+            }
             Err(palisade_core::Error::Held { .. }) => Ok(Response::new(held_outcome(&req.key))),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -155,15 +194,28 @@ impl LockService for PalisadeService {
         request: Request<TryLockForRequest>,
     ) -> Result<Response<LockOutcome>, Status> {
         self.check_ready()?;
+        let principal = self.principal(&request)?;
         let req = request.into_inner();
         let opts = options_from_pb(req.options.as_ref(), &self.config)?;
+        principal.check_lock(&req.key)?;
         let wait = Duration::from_millis(req.wait_ms);
         match self.manager.try_lock_for(&req.key, &opts, wait).await {
-            Ok(h) => Ok(Response::new(granted_outcome(
-                h.owner().as_uuid().to_string(),
-                h.fence().value(),
-                opts.ttl.as_millis() as u64,
-            ))),
+            Ok(h) => {
+                if !req.session.is_empty()
+                    && !self
+                        .sessions
+                        .bind(&req.session, &req.key, &h.owner().as_uuid().to_string())
+                {
+                    let _ = h.release().await;
+                    return Err(Status::not_found("unknown session"));
+                }
+                principal.note_key_acquired();
+                Ok(Response::new(granted_outcome(
+                    h.owner().as_uuid().to_string(),
+                    h.fence().value(),
+                    opts.ttl.as_millis() as u64,
+                )))
+            }
             Err(palisade_core::Error::Held { .. }) => Ok(Response::new(held_outcome(&req.key))),
             Err(palisade_core::Error::Timeout { .. }) => Ok(Response::new(LockOutcome {
                 result: Some(palisade_proto::lock_outcome::Result::TimedOut(TimedOut {
@@ -178,12 +230,17 @@ impl LockService for PalisadeService {
         &self,
         request: Request<UnlockRequest>,
     ) -> Result<Response<UnlockResponse>, Status> {
+        let principal = self.principal(&request)?;
         let req = request.into_inner();
+        principal.check_unlock(&req.key)?;
         let released = self
             .manager
             .unlock_with_token(&req.key, &req.token)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+        if released {
+            principal.note_key_released();
+        }
         let response = if released {
             UnlockResponse {
                 result: Some(palisade_proto::unlock_response::Result::Released(
@@ -204,7 +261,9 @@ impl LockService for PalisadeService {
         &self,
         request: Request<ExtendRequest>,
     ) -> Result<Response<ExtendResponse>, Status> {
+        let principal = self.principal(&request)?;
         let req = request.into_inner();
+        principal.check_extend(&req.key)?;
         let ttl = Duration::from_millis(req.ttl_ms);
         if ttl > self.config.max_ttl {
             return Err(Status::invalid_argument(format!(
@@ -239,11 +298,14 @@ impl LockService for PalisadeService {
         &self,
         request: Request<WatchRequest>,
     ) -> Result<Response<Self::WatchStream>, Status> {
+        let principal = self.principal(&request)?;
         let req = request.into_inner();
+        let guard = principal.check_watch(&req.key)?;
         let manager = self.manager.clone();
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<LockEvent, Status>>(16);
 
         tokio::spawn(async move {
+            let _guard = guard; // quota slot held for the stream's lifetime
             let mut last_held = false;
             loop {
                 tokio::time::sleep(WATCH_POLL).await;
@@ -270,5 +332,68 @@ impl LockService for PalisadeService {
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn register_session(
+        &self,
+        request: Request<palisade_proto::RegisterSessionRequest>,
+    ) -> Result<Response<palisade_proto::RegisterSessionResponse>, Status> {
+        let req = request.into_inner();
+        let ttl = if req.ttl_ms == 0 {
+            Duration::from_secs(10)
+        } else {
+            Duration::from_millis(req.ttl_ms).min(self.config.max_ttl)
+        };
+        let token = self.sessions.register(req.client_id, ttl);
+        tracing::info!(ttl_ms = ttl.as_millis() as u64, "session registered");
+        Ok(Response::new(palisade_proto::RegisterSessionResponse {
+            session_token: token,
+            ttl_ms: ttl.as_millis() as u64,
+        }))
+    }
+
+    async fn heartbeat(
+        &self,
+        request: Request<palisade_proto::HeartbeatRequest>,
+    ) -> Result<Response<palisade_proto::HeartbeatResponse>, Status> {
+        let req = request.into_inner();
+        if !self.sessions.heartbeat(&req.session_token) {
+            return Err(Status::not_found("unknown or expired session"));
+        }
+        Ok(Response::new(palisade_proto::HeartbeatResponse {}))
+    }
+
+    async fn close_session(
+        &self,
+        request: Request<palisade_proto::CloseSessionRequest>,
+    ) -> Result<Response<palisade_proto::CloseSessionResponse>, Status> {
+        let req = request.into_inner();
+        let released = self.sessions.close(&req.session_token).await;
+        Ok(Response::new(palisade_proto::CloseSessionResponse {
+            released_locks: released,
+        }))
+    }
+
+    async fn unlock_force(
+        &self,
+        request: Request<palisade_proto::UnlockForceRequest>,
+    ) -> Result<Response<palisade_proto::UnlockForceResponse>, Status> {
+        let principal = self.principal(&request)?;
+        let req = request.into_inner();
+        principal.check_admin(&req.key)?;
+        let released = self
+            .manager
+            .force_unlock(&req.key)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        crate::auth::Acl::audit(
+            principal.name(),
+            "force-unlock",
+            &req.key,
+            if released { "released" } else { "key-absent" },
+        );
+        Ok(Response::new(palisade_proto::UnlockForceResponse {
+            released,
+        }))
     }
 }

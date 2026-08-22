@@ -1,4 +1,4 @@
-//! Palisade gRPC server binary.
+﻿//! Palisade gRPC server binary.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -65,6 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..ServiceConfig::default()
         },
     );
+    let _sweeper = palisade_server::start_session_sweeper(&service);
 
     let mut builder = Server::builder();
     if let (Some(cert), Some(key)) = (&args.tls_cert, &args.tls_key) {

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "palisade-redis"
 description = "Redis backend for Palisade: Lua-guarded leases, fencing tokens, watchdog renewal, Redlock quorum"
 version.workspace = true

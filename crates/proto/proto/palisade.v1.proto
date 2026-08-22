@@ -16,6 +16,14 @@ service LockService {
   rpc Extend(ExtendRequest) returns (ExtendResponse);
   // Stream of anonymized state changes for one key.
   rpc Watch(WatchRequest) returns (stream LockEvent);
+  // Server-authoritative sessions (ADR 0027): locks bound to a session are
+  // released by the server when heartbeats stop — a crashed client's locks
+  // die with it instead of living out their TTL.
+  rpc RegisterSession(RegisterSessionRequest) returns (RegisterSessionResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+  // Admin-only break-glass release without ownership check. Audited (ADR 0028).
+  rpc UnlockForce(UnlockForceRequest) returns (UnlockForceResponse);
 }
 
 message LockOptions {
@@ -26,12 +34,16 @@ message LockOptions {
 message TryLockRequest {
   string key = 1;
   LockOptions options = 2;
+  // Optional session token from RegisterSession; binds this lock to the
+  // session so the server releases it if the session dies.
+  string session = 3;
 }
 
 message TryLockForRequest {
   string key = 1;
   LockOptions options = 2;
   uint64 wait_ms = 3;
+  string session = 4;
 }
 
 message Granted {
@@ -91,6 +103,38 @@ message ExtendResponse {
 
 message WatchRequest {
   string key = 1;
+}
+
+message RegisterSessionRequest {
+  string client_id = 1;
+  uint64 ttl_ms = 2;
+}
+
+message RegisterSessionResponse {
+  string session_token = 1;
+  uint64 ttl_ms = 2;
+}
+
+message HeartbeatRequest {
+  string session_token = 1;
+}
+
+message HeartbeatResponse {}
+
+message CloseSessionRequest {
+  string session_token = 1;
+}
+
+message CloseSessionResponse {
+  uint32 released_locks = 1;
+}
+
+message UnlockForceRequest {
+  string key = 1;
+}
+
+message UnlockForceResponse {
+  bool released = 1;
 }
 
 message Acquired {}
