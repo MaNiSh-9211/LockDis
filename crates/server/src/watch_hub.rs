@@ -32,7 +32,7 @@ pub struct WatchHub {
 struct HubInner {
     manager: RedisLockManager,
     /// key -> broadcast state; `None` until the first probe completes.
-    keys: Mutex<HashMap<String, watch::Sender<Option<bool>>>>,
+    keys: Mutex<HashMap<String, watch::Sender<Option<(bool, u64)>>>>,
 }
 
 impl WatchHub {
@@ -53,7 +53,7 @@ impl WatchHub {
             if let Some(tx) = keys.get(key) {
                 tx.subscribe()
             } else {
-                let (tx, rx) = watch::channel::<Option<bool>>(None);
+                let (tx, rx) = watch::channel::<Option<(bool, u64)>>(None);
                 keys.insert(key.to_owned(), tx.clone());
                 drop(keys);
                 self.spawn_poller(key.to_owned(), tx);
@@ -66,8 +66,8 @@ impl WatchHub {
             let mut rx = state_rx;
             loop {
                 let current = *rx.borrow_and_update();
-                if let Some(held) = current {
-                    let event = transition_event(held);
+                if let Some((held, version)) = current {
+                    let event = transition_event(held, version);
                     if event_tx.send(Ok(event)).await.is_err() {
                         return;
                     }
@@ -81,7 +81,7 @@ impl WatchHub {
         event_rx
     }
 
-    fn spawn_poller(&self, key: String, tx: watch::Sender<Option<bool>>) {
+    fn spawn_poller(&self, key: String, tx: watch::Sender<Option<(bool, u64)>>) {
         let manager = self.inner.manager.clone();
         let hub = self.inner.clone();
         tokio::spawn(async move {
@@ -99,10 +99,10 @@ impl WatchHub {
                     }
                 }
 
-                if let Ok(held) = manager.probe_held(&key).await {
+                if let Ok(state) = manager.probe_state(&key).await {
                     tx.send_if_modified(|cur| {
-                        if *cur != Some(held) {
-                            *cur = Some(held);
+                        if *cur != Some(state) {
+                            *cur = Some(state);
                             true
                         } else {
                             false
@@ -115,14 +115,14 @@ impl WatchHub {
     }
 }
 
-fn transition_event(held: bool) -> LockEvent {
+fn transition_event(held: bool, version: u64) -> LockEvent {
     if held {
         LockEvent {
-            event: Some(palisade_proto::lock_event::Event::Acquired(Acquired {})),
+            event: Some(palisade_proto::lock_event::Event::Acquired(Acquired { version })),
         }
     } else {
         LockEvent {
-            event: Some(palisade_proto::lock_event::Event::Freed(Freed {})),
+            event: Some(palisade_proto::lock_event::Event::Freed(Freed { version })),
         }
     }
 }

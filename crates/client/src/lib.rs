@@ -45,12 +45,46 @@ impl std::fmt::Debug for PalisadeClient {
 }
 
 /// Anonymized state change for a watched key (ADR 0022: no tokens).
+/// ersion is the per-key fence counter at transition time — strictly
+/// increasing per key, usable to order and deduplicate events.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WatchEvent {
     /// Someone holds the key now.
-    Acquired,
+    Acquired {
+        /// Per-key monotonic version (fence counter).
+        version: u64,
+    },
     /// The key is free now.
+    Freed {
+        /// Per-key monotonic version.
+        version: u64,
+    },
+}
+
+/// Variant tag of a [`WatchEvent`], ignoring payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WatchEventKind {
+    /// Acquired variant.
+    Acquired,
+    /// Freed variant.
     Freed,
+}
+
+impl WatchEvent {
+    /// Variant tag without payload — handy for assertions and filters.
+    pub fn kind(&self) -> WatchEventKind {
+        match self {
+            Self::Acquired { .. } => WatchEventKind::Acquired,
+            Self::Freed { .. } => WatchEventKind::Freed,
+        }
+    }
+
+    /// Per-key monotonic version carried by this event.
+    pub fn version(&self) -> u64 {
+        match self {
+            Self::Acquired { version } | Self::Freed { version } => *version,
+        }
+    }
 }
 
 fn status_to_error(status: tonic::Status) -> Error {
@@ -86,6 +120,22 @@ impl PalisadeClient {
                 session: Arc::new(std::sync::Mutex::new(None)),
             }),
         })
+    }
+
+    /// Key introspection: held state, per-key version, remaining TTL.
+    pub async fn describe_key(&self, key: &str) -> Result<(bool, u64, u64)> {
+        let mut grpc = self.inner.grpc.clone();
+        let resp = grpc
+            .describe_key(request_with_auth(
+                palisade_proto::DescribeKeyRequest {
+                    key: key.to_owned(),
+                },
+                &self.inner.bearer,
+            ))
+            .await
+            .map_err(status_to_error)?
+            .into_inner();
+        Ok((resp.held, resp.version, resp.ttl_ms))
     }
 
     /// Admin break-glass: releases `key` without ownership check. Requires
@@ -365,8 +415,12 @@ impl PalisadeClient {
             use tokio_stream::StreamExt;
             while let Some(Ok(event)) = stream.next().await {
                 let ev = match event.event {
-                    Some(palisade_proto::lock_event::Event::Acquired(_)) => WatchEvent::Acquired,
-                    Some(palisade_proto::lock_event::Event::Freed(_)) => WatchEvent::Freed,
+                    Some(palisade_proto::lock_event::Event::Acquired(a)) => {
+                        WatchEvent::Acquired { version: a.version }
+                    }
+                    Some(palisade_proto::lock_event::Event::Freed(f)) => {
+                        WatchEvent::Freed { version: f.version }
+                    }
                     None => continue,
                 };
                 if tx.send(ev).await.is_err() {

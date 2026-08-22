@@ -361,6 +361,26 @@ impl LockService for PalisadeService {
         }))
     }
 
+    async fn describe_key(
+        &self,
+        request: Request<palisade_proto::DescribeKeyRequest>,
+    ) -> Result<Response<palisade_proto::DescribeKeyResponse>, Status> {
+        let principal = self.principal(&request)?;
+        let req = request.into_inner();
+        // Read-only observation: watch-level permission, no quota slot.
+        principal.check_watch(&req.key)?;
+        let (held, version, ttl_ms) = self
+            .manager
+            .describe_key(&req.key)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(palisade_proto::DescribeKeyResponse {
+            held,
+            version,
+            ttl_ms,
+        }))
+    }
+
     async fn unlock_force(
         &self,
         request: Request<palisade_proto::UnlockForceRequest>,

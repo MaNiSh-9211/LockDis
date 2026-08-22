@@ -205,6 +205,45 @@ impl RedisLockManager {
         Ok(n > 0)
     }
 
+    /// Probe plus the per-key version (the fence counter of the last grant).
+    /// Powers ordered/dedupable watch events and DescribeKey.
+    pub async fn probe_state(&self, key: &str) -> Result<(bool, u64)> {
+        let mut conn = self.conn.clone();
+        let (held, version): (i64, Option<String>) = redis::pipe()
+            .cmd("EXISTS")
+            .arg(key)
+            .cmd("GET")
+            .arg(fence_key_for(key))
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| Error::Backend(format!("probe failed: {e}")))?;
+        let version = version
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        Ok((held > 0, version))
+    }
+
+    /// Introspection for authorized callers: held + version + remaining TTL.
+    pub async fn describe_key(&self, key: &str) -> Result<(bool, u64, u64)> {
+        let mut conn = self.conn.clone();
+        let (held, version, ttl): (i64, Option<String>, i64) = redis::pipe()
+            .cmd("EXISTS")
+            .arg(key)
+            .cmd("GET")
+            .arg(fence_key_for(key))
+            .cmd("PTTL")
+            .arg(key)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| Error::Backend(format!("describe failed: {e}")))?;
+        let v = version.and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        Ok((
+            held > 0,
+            v,
+            if ttl > 0 { ttl as u64 } else { 0 },
+        ))
+    }
+
     /// Admin introspection (ADR 0030): enumerate held keys under a prefix
     /// with their remaining TTLs. Uses SCAN (non-blocking) + PTTL.
     pub async fn scan_held(&self, prefix: &str) -> Result<Vec<(String, u64)>> {

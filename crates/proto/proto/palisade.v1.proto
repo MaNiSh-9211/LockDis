@@ -26,6 +26,20 @@ service LockService {
   rpc UnlockForce(UnlockForceRequest) returns (UnlockForceResponse);
   // Admin introspection: enumerate held keys under a prefix (ADR 0030).
   rpc ListLocks(ListLocksRequest) returns (stream KeyState);
+  // Key introspection for prefix-authorized callers: current state plus
+  // the per-key version (fence counter) usable to order/dedup events.
+  rpc DescribeKey(DescribeKeyRequest) returns (DescribeKeyResponse);
+}
+
+message DescribeKeyRequest {
+  string key = 1;
+}
+
+message DescribeKeyResponse {
+  bool held = 1;
+  // Monotonic per-key version: the fence counter value of the last grant.
+  uint64 version = 2;
+  uint64 ttl_ms = 3;
 }
 
 message LockOptions {
@@ -149,9 +163,13 @@ message KeyState {
   uint64 ttl_ms = 3;
 }
 
-message Acquired {}
+message Acquired {
+  uint64 version = 1;
+}
 
-message Freed {}
+message Freed {
+  uint64 version = 2;
+}
 
 message LockEvent {
   oneof event {

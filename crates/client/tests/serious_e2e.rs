@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use palisade_client::{PalisadeClient, WatchEvent};
+use palisade_client::{PalisadeClient, WatchEvent, WatchEventKind};
 use palisade_core::LockOptions;
 use palisade_proto::lock_service_server::LockServiceServer;
 use palisade_redis::RedisConfig;
@@ -77,14 +77,14 @@ async fn three_watchers_share_one_hub_stream() {
     let h = client.try_lock(&key, &opts).await.expect("grant");
     for w in [&mut w1, &mut w2, &mut w3] {
         assert!(
-            next_event(w, WatchEvent::Acquired).await,
+            next_event(w, WatchEventKind::Acquired).await,
             "missing Acquired"
         );
     }
 
     h.release().await.expect("release");
     for w in [&mut w1, &mut w2, &mut w3] {
-        assert!(next_event(w, WatchEvent::Freed).await, "missing Freed");
+        assert!(next_event(w, WatchEventKind::Freed).await, "missing Freed");
     }
 }
 
@@ -148,14 +148,14 @@ async fn list_locks_admin_only_and_accurate() {
     let _ = addr;
 }
 
-async fn next_event<S>(stream: &mut S, want: WatchEvent) -> bool
+async fn next_event<S>(stream: &mut S, want: WatchEventKind) -> bool
 where
     S: tokio_stream::Stream<Item = WatchEvent> + Unpin,
 {
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_millis(300), stream.next()).await {
-            Ok(Some(ev)) if ev == want => return true,
+            Ok(Some(ev)) if ev.kind() == want => return true,
             Ok(Some(_)) => continue,
             _ => {}
         }

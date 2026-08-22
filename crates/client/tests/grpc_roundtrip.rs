@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use palisade_client::{PalisadeClient, WatchEvent};
+use palisade_client::{PalisadeClient, WatchEvent, WatchEventKind};
 use palisade_core::{Error, LockOptions};
 use palisade_proto::lock_service_server::LockServiceServer;
 use palisade_redis::RedisConfig;
@@ -111,22 +111,22 @@ async fn grpc_watch_reports_state_changes() {
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     let h = client.try_lock(&key, &opts).await.expect("grant");
-    let acquired = wait_for(&mut events, WatchEvent::Acquired).await;
+    let acquired = wait_for(&mut events, WatchEventKind::Acquired).await;
     assert!(acquired, "never saw Acquired");
 
     h.release().await.expect("release");
-    let freed = wait_for(&mut events, WatchEvent::Freed).await;
+    let freed = wait_for(&mut events, WatchEventKind::Freed).await;
     assert!(freed, "never saw Freed");
 }
 
-async fn wait_for<S>(stream: &mut S, want: WatchEvent) -> bool
+async fn wait_for<S>(stream: &mut S, want: WatchEventKind) -> bool
 where
     S: tokio_stream::Stream<Item = WatchEvent> + Unpin,
 {
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_millis(300), stream.next()).await {
-            Ok(Some(ev)) if ev == want => return true,
+            Ok(Some(ev)) if ev.kind() == want => return true,
             Ok(Some(_)) => continue,
             _ => {}
         }
