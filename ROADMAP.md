@@ -32,10 +32,10 @@ Chaos runs are gated behind `PALISADE_CHAOS=1` + docker compose lab
 |---|---|---|---|
 | C1 | `RedisCountDownLatch` primitive (Redisson parity) | NX-init, floored countdown, wait/timeout | ✅ |
 | C2 | Postgres fence-SQL builders in core (injection-guarded, unit-tested) | Fencing made copy-paste for the #1 downstream store | ✅ |
-| C3 | Examples: leader election, job dedupe, RW cache invalidation | First-hour productivity | ⬜ |
+| C3 | Examples: leader election, job dedupe, RW cache invalidation | crates/redis/examples/ - build-gated | ✅ |
 | C4 | CI: redis+etcd service containers + protoc, full workspace suite | Gates enforce what we claim | ✅ |
-| C5 | Publish prep: crate metadata, workspace lints pass on docs.rs build | crates.io readiness | 🔶 |
-| C6 | Soak harness script (1h mixed workload, invariant-checked) | Long-tail race discovery | ⬜ |
+| C5 | Publish prep: core metadata polished; path-dep crates marked publish=false until first crates.io release | crates.io readiness staged | ✅ |
+| C6 | Soak harness (testing/examples/soak.rs; SOAK_SECS/SOAK_WORKERS) | Smoke: 22.6k cycles clean | ✅ |
 
 ## Track D — Performance validation
 
