@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+categories = ["concurrency", "database", "network-programming"]
+keywords = ["distributed", "lock", "mutex", "fencing", "redis"]
+
 [dependencies]
 thiserror.workspace = true
 uuid.workspace = true

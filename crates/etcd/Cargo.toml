@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "palisade-etcd"
 description = "etcd backend for Palisade: MVCC transactional locks, server-side leases, revision-based fencing tokens"
 version.workspace = true

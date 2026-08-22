@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "palisade-proto"
 description = "Protobuf contract and tonic codegen for the Palisade lock service"
 version.workspace = true

@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "palisade-testing"
 description = "Correctness harness: property tests, deterministic simulation, invariant checking, chaos scenarios"
 version.workspace = true
@@ -12,6 +13,7 @@ authors.workspace = true
 palisade-core.workspace = true
 
 [dev-dependencies]
+anyhow.workspace = true
 palisade-redis.workspace = true
 tokio.workspace = true
 proptest.workspace = true

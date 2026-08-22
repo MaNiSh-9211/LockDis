@@ -1303,6 +1303,7 @@ dependencies = [
 name = "palisade-redis"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "criterion",
  "metrics",
@@ -1338,6 +1339,7 @@ dependencies = [
 name = "palisade-testing"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "palisade-core",
  "palisade-redis",
  "proptest",

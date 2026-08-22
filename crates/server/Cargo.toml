@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "palisade-server"
 description = "Standalone gRPC lock service exposing Palisade semantics to any language"
 version.workspace = true
