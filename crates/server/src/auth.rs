@@ -48,14 +48,33 @@ fn default_true() -> bool {
 }
 
 /// Loaded ACL set. `open` mode when no file is provided.
+/// Who vouches for the caller's identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthMode {
+    /// Bearer tokens matched against the ACL file.
+    File,
+    /// A trusted gateway/UAM has already authenticated the caller and
+    /// forwards `X-Palisade-Principal: <name>`; we authorize by NAME.
+    /// Requires the network hop to be protected (mTLS / private link).
+    TrustedHeader,
+}
+
 #[derive(Clone)]
 pub struct Acl {
     inner: Arc<AclInner>,
+    mode: AuthMode,
 }
 
 struct AclInner {
     open: bool,
     by_token: HashMap<String, Principal>,
+}
+
+impl AclInner {
+    fn by_name(&self, name: &str) -> Option<Principal> {
+        // Linear scan is fine at enterprise-realistic principal counts.
+        self.by_token.values().find(|p| p.name == name).cloned()
+    }
 }
 
 #[derive(Clone)]
@@ -163,7 +182,14 @@ impl Acl {
                 open: true,
                 by_token: HashMap::new(),
             }),
+            mode: AuthMode::File,
         }
+    }
+
+    /// Sets the identity source (default: bearer tokens from the file).
+    pub fn with_mode(mut self, mode: AuthMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// Parses an ACL JSON document:
@@ -194,6 +220,7 @@ impl Acl {
                 open: false,
                 by_token,
             }),
+            mode: AuthMode::File,
         })
     }
 
@@ -216,6 +243,25 @@ impl Acl {
     /// Resolves the caller's principal from the `authorization` header.
     /// In open mode every caller is `anonymous`.
     pub fn resolve(&self, bearer: Option<&str>) -> Result<Principal, tonic::Status> {
+        self.resolve_with_header(bearer, None)
+    }
+
+    /// Resolves identity honoring the configured auth mode. `principal_hdr`
+    /// carries the gateway/UAM-vouched name in TrustedHeader mode.
+    pub fn resolve_with_header(
+        &self,
+        bearer: Option<&str>,
+        principal_hdr: Option<&str>,
+    ) -> Result<Principal, tonic::Status> {
+        if self.mode == AuthMode::TrustedHeader {
+            let name = principal_hdr.ok_or_else(|| {
+                tonic::Status::unauthenticated("missing x-palisade-principal header")
+            })?;
+            return self
+                .inner
+                .by_name(name)
+                .ok_or_else(|| tonic::Status::unauthenticated("unknown principal"));
+        }
         if self.inner.open {
             return Ok(Self::make_principal(PrincipalConfig {
                 name: "anonymous".into(),

@@ -44,27 +44,50 @@ struct Args {
     /// Serve Prometheus metrics at this address (e.g. 0.0.0.0:9100).
     #[arg(long)]
     metrics_addr: Option<SocketAddr>,
+
+    /// JSON ACL file; omit for open mode (dev only).
+    #[arg(long)]
+    acl_file: Option<std::path::PathBuf>,
+
+    /// Identity source: file (bearer tokens from the ACL) or trusted-header
+    /// (gateway/UAM vouches via x-palisade-principal; requires --acl-file).
+    #[arg(long, default_value = "file", requires = "acl_file")]
+    auth_mode: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    let json_logs = std::env::var("PALISADE_LOG_JSON").as_deref() == Ok("1");
+    if json_logs {
+        tracing_subscriber::fmt().json().init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "info".into()),
+            )
+            .init();
+    }
 
     let args = Args::parse();
     let manager = palisade_redis::RedisLockManager::connect(RedisConfig::new(&args.redis_url))
         .await
         .map_err(|e| format!("redis connect failed: {e}"))?;
-    let service = PalisadeService::new(
+    let mut service = PalisadeService::new(
         manager,
         ServiceConfig {
             max_ttl: Duration::from_secs(args.max_ttl_secs),
             ..ServiceConfig::default()
         },
     );
+    if let Some(acl_path) = &args.acl_file {
+        let mut acl = palisade_server::Acl::load_file(acl_path)?;
+        if args.auth_mode == "trusted-header" {
+            acl = acl.with_mode(palisade_server::AuthMode::TrustedHeader);
+            tracing::info!("auth mode: trusted gateway/UAM header");
+        }
+        service = service.with_acl(acl);
+    }
     let _sweeper = palisade_server::start_session_sweeper(&service);
 
     let _ = rustls::crypto::ring::default_provider().install_default();

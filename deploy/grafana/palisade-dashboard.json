@@ -1,0 +1,55 @@
+{
+  "title": "Palisade Lock Service",
+  "uid": "palisade-overview",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Grants / sec",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 8 },
+      "targets": [{ "expr": "rate(palisade_grants_total[1m])" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Releases / sec",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 8 },
+      "targets": [{ "expr": "rate(palisade_releases_total[1m])" }]
+    },
+    {
+      "type": "gauge",
+      "title": "Active watch keys",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 8 },
+      "targets": [{ "expr": "palisade_watch_keys_active" }]
+    },
+    {
+      "type": "stat",
+      "title": "Sessions expired (sweeps)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 8 },
+      "targets": [{ "expr": "increase(palisade_sessions_expired_total[1h])" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Renewal failures (watchdog)",
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
+      "targets": [{ "expr": "rate(palisade_renewal_failures_total[5m])" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Authz denials",
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 },
+      "targets": [{ "expr": "rate(palisade_authz_denials_total[5m])" }]
+    },
+    {
+      "type": "logs",
+      "title": "Audit stream (force-unlock / denials)",
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "{job=\"palisade-server\"} | json | audit=\"audit\"",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

@@ -10,6 +10,7 @@ pub struct RedisConfig {
     url: String,
     default_ttl: Duration,
     watchdog: bool,
+    response_timeout: Duration,
 }
 
 impl RedisConfig {
@@ -19,6 +20,7 @@ impl RedisConfig {
             url: url.into(),
             default_ttl: Duration::from_secs(30),
             watchdog: false,
+            response_timeout: Duration::from_secs(5),
         }
     }
 
@@ -26,6 +28,14 @@ impl RedisConfig {
     /// [`palisade_core::LockOptions::default`].
     pub fn with_default_ttl(mut self, ttl: Duration) -> Self {
         self.default_ttl = ttl;
+        self
+    }
+
+    /// Bounds how long any single Redis command may hang before the
+    /// connection recycles. Default 5s — a blackholed store must never
+    /// wedge callers indefinitely.
+    pub fn with_response_timeout(mut self, t: Duration) -> Self {
+        self.response_timeout = t;
         self
     }
 
@@ -49,6 +59,11 @@ impl RedisConfig {
     /// The configured watchdog default.
     pub fn watchdog(&self) -> bool {
         self.watchdog
+    }
+
+    /// The configured per-command response timeout.
+    pub fn response_timeout(&self) -> Duration {
+        self.response_timeout
     }
 
     pub(crate) fn validate(&self) -> Result<()> {

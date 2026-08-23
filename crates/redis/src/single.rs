@@ -69,8 +69,10 @@ impl RedisLockManager {
         config.validate()?;
         let client = redis::Client::open(config.url())
             .map_err(|e| Error::InvalidConfig(format!("bad redis url `{}`: {e}", config.url())))?;
+        let cm_config = redis::aio::ConnectionManagerConfig::new()
+            .set_response_timeout(Some(config.response_timeout()));
         let conn = client
-            .get_connection_manager()
+            .get_connection_manager_with_config(cm_config)
             .await
             .map_err(|e| Error::Backend(format!("connect {}: {e}", config.url())))?;
         Ok(Self {

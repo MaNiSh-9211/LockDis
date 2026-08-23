@@ -7,7 +7,7 @@ mod service;
 mod sessions;
 mod watch_hub;
 
-pub use auth::{Acl, Principal};
+pub use auth::{Acl, AuthMode, Principal};
 pub use registry::HeldRegistry;
 pub use service::{PalisadeService, ServiceConfig};
 pub use sessions::{HbResult, SessionBook};
