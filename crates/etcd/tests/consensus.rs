@@ -19,9 +19,20 @@ fn endpoints() -> Vec<String> {
 async fn connect() -> Option<EtcdLockManager> {
     match EtcdLockManager::connect(EtcdConfig::new(endpoints())).await {
         Ok(m) => Some(m),
-        Err(e) => {
-            eprintln!("skipping etcd test: no cluster at {:?}: {e}", endpoints());
-            None
+        Err(_) => {
+            // Docker Desktop kills containers under load on dev boxes; give
+            // it one self-heal chance before declaring the suite skipped.
+            let _ = std::process::Command::new("docker")
+                .args(["start", "palisade-etcd"])
+                .output();
+            std::thread::sleep(Duration::from_secs(4));
+            match EtcdLockManager::connect(EtcdConfig::new(endpoints())).await {
+                Ok(m) => Some(m),
+                Err(e) => {
+                    eprintln!("skipping etcd test after revive attempt: {e}");
+                    None
+                }
+            }
         }
     }
 }

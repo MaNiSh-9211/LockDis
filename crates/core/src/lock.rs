@@ -23,6 +23,9 @@ pub struct LockOptions {
     /// Watchdog auto-renewal override. `None` inherits the backend's
     /// default; `Some(true)`/`Some(false)` forces it for this acquisition.
     pub watchdog: Option<bool>,
+    /// Where on the safety/liveness frontier this holder sits when renewal
+    /// becomes unreliable (INV-2). Default: Balanced.
+    pub safety_policy: crate::SafetyPolicy,
 }
 
 impl Default for LockOptions {
@@ -30,6 +33,7 @@ impl Default for LockOptions {
         Self {
             ttl: Duration::from_secs(30),
             watchdog: None,
+            safety_policy: Default::default(),
         }
     }
 }
@@ -43,6 +47,12 @@ impl LockOptions {
     /// Sets the lease duration.
     pub fn with_ttl(mut self, ttl: Duration) -> Self {
         self.ttl = ttl;
+        self
+    }
+
+    /// Sets the safety policy for this acquisition (INV-2).
+    pub fn with_safety_policy(mut self, policy: crate::SafetyPolicy) -> Self {
+        self.safety_policy = policy;
         self
     }
 

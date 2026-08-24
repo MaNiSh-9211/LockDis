@@ -18,6 +18,7 @@ pub mod rwlock;
 mod scripts;
 pub mod semaphore;
 pub mod single;
+pub mod testament;
 
 pub use config::RedisConfig;
 pub use fair::FairLockHandle;

@@ -27,11 +27,6 @@ pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(20);
 /// opportunities must fail before a normal TTL boundary is at risk.
 const RENEWAL_DIVISOR: u32 = 3;
 
-/// Transient (backend) renewal errors tolerated before declaring the lease
-/// lost. A definitive not-owner answer poisons immediately — there is
-/// nothing transient about losing ownership.
-const MAX_CONSECUTIVE_RENEW_FAILURES: u32 = 2;
-
 /// Fence counters live `FENCE_TTL_MULTIPLIER ×` longer than the lease so a
 /// counter never expires while its lock could still be held.
 const FENCE_TTL_MULTIPLIER: u32 = 10;
@@ -154,6 +149,7 @@ impl RedisLockManager {
                     poisoned: AtomicBool::new(false),
                     lost: watch::channel(false).0,
                     ttl: options.ttl,
+                    policy: options.safety_policy,
                 });
                 if options.watchdog.unwrap_or(self.watchdog_default) {
                     spawn_watchdog(&shared);
@@ -389,6 +385,7 @@ struct HandleShared {
     poisoned: AtomicBool,
     lost: watch::Sender<bool>,
     ttl: Duration,
+    policy: palisade_core::SafetyPolicy,
 }
 
 impl HandleShared {
@@ -426,7 +423,12 @@ impl HandleShared {
 fn spawn_watchdog(shared: &Arc<HandleShared>) {
     let weak = Arc::downgrade(shared);
     let ttl = shared.ttl;
+    let policy = shared.policy;
     tokio::spawn(async move {
+        // INV-2: tolerated transient-failure budget comes from the holder's
+        // chosen point on the safety/liveness frontier. Cowardly=0 means the
+        // FIRST renewal error surrenders leadership immediately.
+        let max_transient = policy.max_transient_failures();
         let mut transient_failures = 0u32;
         loop {
             tokio::time::sleep(ttl / RENEWAL_DIVISOR).await;
@@ -449,7 +451,7 @@ fn spawn_watchdog(shared: &Arc<HandleShared>) {
                 Err(_) => {
                     metrics::counter!("palisade_renewal_failures_total").increment(1);
                     transient_failures += 1;
-                    if transient_failures >= MAX_CONSECUTIVE_RENEW_FAILURES {
+                    if transient_failures > max_transient {
                         s.mark_lost();
                         return;
                     }

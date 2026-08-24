@@ -54,9 +54,14 @@ impl Drop for RwShared {
             })
         } else {
             let script = self.read_release_script.clone();
+            let token = self.token.clone();
             runtime.spawn(async move {
-                let _: std::result::Result<i64, redis::RedisError> =
-                    script.key(&key).arg(0_i64).invoke_async(&mut conn).await;
+                let _: std::result::Result<i64, redis::RedisError> = script
+                    .key(&key)
+                    .arg(token)
+                    .arg(0_u64)
+                    .invoke_async(&mut conn)
+                    .await;
             })
         };
         std::mem::drop(task);
@@ -160,6 +165,7 @@ impl RwReadHandle {
             .shared
             .read_release_script
             .key(&self.shared.key)
+            .arg(&self.shared.token)
             .arg(self.shared.ttl.as_millis() as u64)
             .invoke_async(&mut conn)
             .await
