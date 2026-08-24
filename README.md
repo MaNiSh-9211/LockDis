@@ -1,5 +1,10 @@
 # Palisade
 
+[![CI](https://github.com/MaNiSh-9211/LockDis/actions/workflows/ci.yml/badge.svg)](https://github.com/MaNiSh-9211/LockDis/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT_OR_Apache--2.0-blue.svg)](LICENSE)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
+[![Safety: no unsafe](https://img.shields.io/badge/unsafe-forbidden-red.svg)](https://github.com/MaNiSh-9211/LockDis)
+
 A distributed locking system in Rust with **mandatory fencing tokens**, **server-authoritative sessions**, **semantic predicates inside the atomic grant**, and **chaos-proven correctness** — backed by Redis or etcd consensus.
 
 ## Why Palisade exists
@@ -85,6 +90,22 @@ CI enforces all four gates against live Redis + etcd containers.
 - [docs/durability.md](docs/durability.md) — per-backend restart behavior
 - [docs/performance.md](docs/performance.md) — benchmark numbers
 - [docs/integrations.md](docs/integrations.md) — gateway/UAM/Grafana wiring
+
+## Documentation
+
+| Guide | Audience |
+|---|---|
+| [Tutorial](docs/TUTORIAL.md) | Your first lock in 5 minutes |
+| [Architecture](ARCHITECTURE.md) | System design with diagrams |
+| [Comparison](docs/COMPARISON.md) | vs Redisson, ZooKeeper, etcd, Consul |
+| [Fencing Guide](docs/fencing-guide.md) | How to actually use fence tokens |
+| [Edge Cases](docs/EDGE_CASES.md) | 40+ failure modes catalogued |
+| [Operations Runbook](docs/OPERATIONS.md) | Deploy, monitor, troubleshoot |
+| [Integrations](docs/integrations.md) | Gateway/UAM/Grafana wiring |
+| [Durability](docs/durability.md) | Restart behavior per backend |
+| [Performance](docs/performance.md) | Benchmark numbers |
+| [Security Policy](SECURITY.md) | Reporting and model |
+| [ADRs](docs/decisions/README.md) | Every decision + rejected alternatives |
 
 ## License
 
