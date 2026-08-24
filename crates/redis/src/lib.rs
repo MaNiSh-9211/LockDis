@@ -16,6 +16,7 @@ pub mod redlock;
 pub mod reentrant;
 pub mod rwlock;
 mod scripts;
+pub mod semantic;
 pub mod semaphore;
 pub mod single;
 pub mod testament;

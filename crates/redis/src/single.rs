@@ -207,6 +207,33 @@ impl RedisLockManager {
             tokio::time::sleep(sleep_for).await;
         }
     }
+    /// Constructs a handle from known grant parameters (semantic locks).
+    pub(crate) fn build_handle_from_parts(
+        &self,
+        key: &str,
+        token: String,
+        owner: OwnerId,
+        fence: u64,
+        ttl: Duration,
+    ) -> crate::single::RedisLockHandle {
+        let shared = Arc::new(HandleShared {
+            conn: self.conn.clone(),
+            release_script: self.release_script.clone(),
+            extend_script: self.extend_script.clone(),
+            key: key.to_owned(),
+            fence_key: fence_key_for(key),
+            token,
+            owner,
+            fence: palisade_core::FencingToken::new(fence),
+            released: AtomicBool::new(false),
+            poisoned: AtomicBool::new(false),
+            lost: watch::channel(false).0,
+            ttl,
+            policy: palisade_core::SafetyPolicy::default(),
+        });
+        crate::single::RedisLockHandle { shared }
+    }
+
     /// Non-acquiring existence probe: is the key currently held by anyone?
     /// Used by watch streams; never mutates state.
     pub async fn probe_held(&self, key: &str) -> Result<bool> {
