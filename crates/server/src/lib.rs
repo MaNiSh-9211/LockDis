@@ -8,6 +8,8 @@ mod service;
 mod sessions;
 mod watch_hub;
 
+pub mod demo;
+
 pub use auth::{Acl, AuthMode, Principal};
 pub use lattice::{StorePressureIndex, Tier};
 pub use registry::HeldRegistry;

@@ -3,8 +3,8 @@
 //!
 //! Run: cargo run -p palisade-redis --example demo -- --workers 5
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use palisade_core::{Error, LockHandle, LockOptions};
@@ -16,9 +16,7 @@ fn url() -> String {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mgr = Arc::new(
-        RedisLockManager::connect(RedisConfig::new(&url())).await?
-    );
+    let mgr = Arc::new(RedisLockManager::connect(RedisConfig::new(url())).await?);
     let key = format!(
         "palisade-demo:{}",
         palisade_core::OwnerId::generate().as_uuid()
@@ -53,18 +51,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // Simulate critical section work.
                         tokio::time::sleep(Duration::from_millis(300 + rand_delay(w))).await;
                         match h.release().await {
-                            Ok(()) => println!(
-                                "\x1b[90m[Worker {w}]   released\x1b[0m"
-                            ),
-                            Err(e) => println!(
-                                "\x1b[31m[Worker {w}] ✗ release failed: {e}\x1b[0m"
-                            ),
+                            Ok(()) => println!("\x1b[90m[Worker {w}]   released\x1b[0m"),
+                            Err(e) => println!("\x1b[31m[Worker {w}] ✗ release failed: {e}\x1b[0m"),
                         }
                     }
                     Err(Error::Held { .. }) => {
-                        println!(
-                            "\x1b[33m[Worker {w}] ⏳ held by another worker\x1b[0m"
-                        );
+                        println!("\x1b[33m[Worker {w}] ⏳ held by another worker\x1b[0m");
                         tokio::time::sleep(Duration::from_millis(500 + rand_delay(w))).await;
                     }
                     Err(e) => {
