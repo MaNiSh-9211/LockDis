@@ -7,6 +7,7 @@ graph TB
     subgraph "Client Layer"
         RS[Rust SDK]
         PY[Python/TS clients]
+        WB[Browser demo SPA<br/>vanilla JS · Tailwind CDN]
     end
 
     subgraph "Edge"
@@ -14,8 +15,9 @@ graph TB
         UAM[UAM Service<br/>authentication]
     end
 
-    subgraph "Palisade gRPC Tier"
-        PS[palisade-server<br/>mTLS · authz · sessions<br/>watch hub · Prometheus]
+    subgraph "Palisade Service Tier"
+        PS[palisade-server<br/>gRPC · mTLS · authz · sessions<br/>watch hub · Prometheus]
+        PD[palisade-demo<br/>axum HTTP + WebSocket<br/>embedded single-page frontend]
     end
 
     subgraph "Storage Backends"
@@ -27,8 +29,10 @@ graph TB
     PY --> GW
     GW -->|trusted-header| PS
     UAM -->|identity| GW
+    WB -->|JSON over HTTP| PD
     PS -->|BackendOps trait| R
     PS -->|BackendOps trait| E
+    PD -->|RedisLockManager directly| R
 ```
 
 ## Crate Dependency Graph
@@ -39,20 +43,22 @@ graph TD
     REDIS[palisade-redis<br/>all primitives · Redlock]
     ETCD[palisade-etcd<br/>consensus backend]
     PROTO[palisade-proto<br/>wire contract]
-    SERVER[palisade-server<br/>gRPC service]
+    SERVER[palisade-server<br/>gRPC service · demo binary]
     CLIENT[palisade-client<br/>SDK]
     TESTING[palisade-testing<br/>sim · checker]
 
     REDIS --> CORE
     ETCD --> CORE
-    PROTO --> CORE
     SERVER --> CORE
     SERVER --> REDIS
     SERVER --> PROTO
     CLIENT --> CORE
     CLIENT --> PROTO
+    CLIENT --> TESTING
     TESTING --> CORE
 ```
+
+Two edges worth calling out: `palisade-proto` is generated wire code only — it depends on tonic/prost, **not** on core. And `CLIENT → TESTING` is a real dependency: the SDK runs invariant checks over its own live traffic (see the verification pipeline below).
 
 ## Request Flow: Semantic Lock Acquisition
 
@@ -63,8 +69,9 @@ sequenceDiagram
     participant R as Redis
 
     C->>S: TryLock(key, predicates)
-    S->>R: EVALSHA acquire_where.lua
-    Note over R: ATOMIC: EXISTS check<br/>+ predicate evaluation<br/>+ SET NX PX<br/>+ INCR fence counter
+    S->>R: EVALSHA semantic acquire script
+    Note over S,R: one script per acquisition:<br/>predicates are inlined as Lua conditions
+    Note over R: ATOMIC: data-hash exists?<br/>+ lock key absent?<br/>+ all predicates true?<br/>+ SET lock token PX ttl<br/>+ INCR fence counter
     R-->>S: {status=1, fence=42}
     S->>C: Granted{token, fence=42}
     Note over C: Handle owns fence #42.<br/>Watchdog renews at ttl/3.
@@ -131,8 +138,48 @@ At each tier, consumers adapt:
 
 ```mermaid
 graph LR
-    P[Property Tests<br/>vs live Redis] --> S[Deterministic Sim<br/>200 seeds × fault injection]
+    P[Property Tests<br/>vs live Redis] --> S[Deterministic Sim<br/>200 clean seeds · zero violations]
     S --> LC[Invariant Checker<br/>hash-chained histories]
     LC --> H[Real-Traffic Checking<br/>gRPC e2e through checker]
-    H --> CH[Chaos Suite<br/>toxiproxy + container kills]
+    H --> CH[Chaos Suite<br/>CLIENT PAUSE blackout<br/>Redlock quorum loss<br/>etcd member stop]
 ```
+
+## Web Demo Surface
+
+The `palisade-demo` binary (same crate as the gRPC server, separate port)
+serves an embedded browser UI and a thin REST/WS façade. It adds **no new
+locking semantics**: every mutation runs the identical Lua-guarded scripts
+through `RedisLockManager`, so the safety arguments of ADRs 0005/0011 apply
+unchanged.
+
+```mermaid
+graph LR
+    B["Browser SPA<br/>worker grid · fence timeline<br/>contention banner · event log"]
+    AX["palisade-demo<br/>axum router · DemoState"]
+    HUB["WatchHub<br/>one poller per key"]
+    R[("Redis<br/>Lua scripts")]
+
+    B -->|"POST /api/lock · POST /api/unlock"| AX
+    B -->|"GET /api/describe/:key<br/>GET /api/locks · GET /api/pressure"| AX
+    B -->|"WS /api/watch/:key"| AX
+    AX -->|"try_lock_with · unlock_with_token<br/>describe_key · scan_held"| R
+    AX -->|subscribe| HUB
+    HUB -->|"probe_state every 100 ms"| R
+    AX -->|"SPI gauge readout"| B
+```
+
+| Demo route | Mirrors gRPC | Notes |
+|---|---|---|
+| `POST /api/lock` | `TryLock` | returns token + fence; watchdog off so expiry is visible |
+| `POST /api/unlock` | `Unlock` | ownership-checked release; stale tokens get `lost` |
+| `GET /api/describe/{key}` | `DescribeKey` | held + version + remaining TTL |
+| `GET /api/locks?prefix=` | `ListLocks` | admin SCAN introspection |
+| `WS /api/watch/{key}` | `Watch` | anonymized events via the shared hub |
+| `GET /api/pressure` | — | INV-5 Store Pressure Index readout |
+
+Honest fine print for anyone staring at the demo: watch events are
+**level-triggered** — the hub polls each key at 100 ms and broadcasts state
+*transitions* (ADR 0029), so a grant released between two probes surfaces
+only as a version bump on the next `Freed`. Events never carry holder
+tokens (ADR 0022); tabs are just subscribers, and N tabs still cost exactly
+one poller per watched key.
