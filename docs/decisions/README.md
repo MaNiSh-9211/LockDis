@@ -36,6 +36,7 @@ Every feature and architectural decision gets an ADR here: **what we picked, why
 | [0028](0028-authz-quotas-audit.md) | Authorization & multi-tenancy: ACLs, quotas, audit | Accepted |
 | [0029](0029-watch-fanout-hub.md) | Watch fan-out: hub with one poller per key | Accepted |
 | [0030](0030-admin-introspection-durability.md) | Admin introspection + durability guidance | Accepted |
+| [0031](0031-backend-abstraction-grpc.md) | BackendOps abstraction for etcd-over-gRPC | Proposed |
 
 ## Template
 
