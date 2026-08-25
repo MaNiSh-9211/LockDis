@@ -17,7 +17,9 @@
 //! - `GET  /api/pressure`                           → Store Pressure Index
 //! - `WS   /api/watch/{key}`                        → versioned lock events
 
+use std::env;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -27,6 +29,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use tower_http::services::ServeDir;
 use palisade_core::{Error, LockHandle};
 use palisade_proto::lock_event;
 use palisade_redis::{RedisConfig, RedisLockManager};
@@ -70,9 +73,10 @@ impl DemoState {
     }
 }
 
-/// Builds the demo router: frontend at `/`, API under `/api/*`.
+/// Builds the demo router: frontend at `/`, API under `/api/*`, static assets under `/images/`.
 pub fn demo_router(manager: RedisLockManager) -> Router {
     let state = DemoState::new(manager);
+    let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
     Router::new()
         .route("/", get(index))
         .route("/api/lock", post(acquire))
@@ -81,6 +85,7 @@ pub fn demo_router(manager: RedisLockManager) -> Router {
         .route("/api/locks", get(list_locks))
         .route("/api/pressure", get(pressure))
         .route("/api/watch/{key}", get(watch_upgrade))
+        .nest_service("/images", ServeDir::new(assets_dir.join("images")))
         .layer(DefaultBodyLimit::max(16 * 1024))
         .with_state(state)
 }
