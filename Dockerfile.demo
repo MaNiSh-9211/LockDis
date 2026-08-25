@@ -1,0 +1,28 @@
+# Palisade Web Demo - containerized backend + embedded frontend
+FROM rust:1.85-slim AS builder
+
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY ARCHITECTURE.md README.md ./
+
+# Build demo binary with all features
+RUN cargo build --release -p palisade-server --bin palisade-demo
+
+# ---- Runtime ----
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /app/target/release/palisade-demo .
+
+# Run as non-root
+RUN useradd -r -s /bin/false demo && chown demo:demo /app/palisade-demo
+
+EXPOSE 8080
+ENV RUST_LOG=info
+ENV PALISADE_REDIS_URL=redis://redis:6379
+
+ENTRYPOINT ["/app/palisade-demo", "--listen", "0.0.0.0:8080"]
