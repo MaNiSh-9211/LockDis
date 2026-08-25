@@ -1,6 +1,8 @@
 # Palisade
 
-![Palisade logo](crates/server/assets/images/Palisade.png)
+<p align="center">
+  <img src="crates/server/assets/images/Palisade.png" alt="Palisade logo" width="220">
+</p>
 
 [![CI](https://github.com/MaNiSh-9211/Palisade/actions/workflows/ci.yml/badge.svg)](https://github.com/MaNiSh-9211/Palisade/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT_OR_Apache--2.0-blue.svg)](LICENSE-MIT)
