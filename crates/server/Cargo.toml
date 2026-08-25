@@ -36,6 +36,7 @@ serde.workspace = true
 serde_json.workspace = true
 axum = { version = "0.8.9", features = ["ws"] }
 tower-http = { version = "0.7.0", features = ["fs"] }
+redis.workspace = true
 
 [dev-dependencies]
 futures-util = "0.3.34"

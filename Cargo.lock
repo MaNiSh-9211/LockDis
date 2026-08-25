@@ -1488,6 +1488,7 @@ dependencies = [
  "palisade-proto",
  "palisade-redis",
  "prost",
+ "redis",
  "reqwest",
  "rustls",
  "serde",
