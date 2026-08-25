@@ -1,9 +1,11 @@
 # Palisade
 
-[![CI](https://github.com/MaNiSh-9211/LockDis/actions/workflows/ci.yml/badge.svg)](https://github.com/MaNiSh-9211/LockDis/actions/workflows/ci.yml)
+![Palisade logo](crates/server/assets/images/Palisade.png)
+
+[![CI](https://github.com/MaNiSh-9211/Palisade/actions/workflows/ci.yml/badge.svg)](https://github.com/MaNiSh-9211/Palisade/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT_OR_Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
-[![Safety: no unsafe](https://img.shields.io/badge/unsafe-forbidden-red.svg)](https://github.com/MaNiSh-9211/LockDis)
+[![Safety: no unsafe](https://img.shields.io/badge/unsafe-forbidden-red.svg)](https://github.com/MaNiSh-9211/Palisade)
 
 A distributed locking system in Rust with **mandatory fencing tokens**, **server-authoritative sessions**, **semantic predicates inside the atomic grant**, and **chaos-proven correctness** — backed by Redis or etcd consensus.
 
