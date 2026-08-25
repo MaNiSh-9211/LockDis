@@ -3,15 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Palisade · Live Locking Demo</title>
+<title>Palisade · Feature Test Console</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: { mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"] },
-      },
-    },
+    theme: { extend: { fontFamily: { mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"] } } },
   };
 </script>
 <style>
@@ -20,171 +16,328 @@
   ::-webkit-scrollbar-track { background: transparent; }
   @keyframes pulse-ring { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
   .pulse-ring { animation: pulse-ring 1.1s ease-in-out infinite; }
+  .tabbtn.active { background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.5); color: #6ee7b7; }
+  input, select { color-scheme: dark; }
 </style>
 </head>
 <body class="bg-[#070b14] text-slate-300 min-h-screen antialiased">
 
-<!-- ── Header ─────────────────────────────────────────────────────────── -->
-<header class="border-b border-slate-800/80 bg-[#0a101d]/90 backdrop-blur sticky top-0 z-20">
-  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
-    <div class="flex items-center gap-3">
-      <img src="/images/Palisade.png" alt="Palisade" class="w-9 h-9 object-contain">
-      <div>
-        <h1 class="text-slate-100 font-semibold tracking-tight leading-none">Palisade</h1>
-        <p class="text-[11px] text-slate-500 mt-0.5">distributed locking · live fencing-token demo</p>
-      </div>
+<!-- ── Header ─────────────────────────────────────────────────────── -->
+<header class="border-b border-slate-800/80 bg-[#0a101d]/90 backdrop-blur sticky top-0 z-30">
+  <div class="max-w-7xl mx-auto px-4 py-2.5 flex items-center gap-3 flex-wrap">
+    <img src="/images/Palisade.png" alt="Palisade" class="w-8 h-8 object-contain">
+    <div>
+      <h1 class="text-slate-100 font-semibold tracking-tight leading-none text-sm">Palisade</h1>
+      <p class="text-[10px] text-slate-500">feature test console · real Redis · real Lua scripts</p>
     </div>
-
-    <div class="flex items-center gap-2 ml-auto flex-wrap">
-      <label class="text-xs text-slate-500 font-medium uppercase tracking-wider">key</label>
-      <input id="keyInput" value="demo:orders" spellcheck="false"
-        class="bg-slate-900 border border-slate-700 focus:border-emerald-600 rounded-lg px-3 py-1.5 text-sm font-mono text-slate-100 w-56 outline-none transition-colors">
-      <button id="setKeyBtn"
-        class="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition-colors">Set&nbsp;key</button>
-      <span class="mx-1 w-px h-6 bg-slate-800"></span>
-      <button id="addWorkerBtn"
-        class="px-3 py-1.5 text-sm rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-600/50 text-emerald-300 transition-colors">＋&nbsp;Add worker</button>
-      <button id="rmWorkerBtn"
-        class="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 transition-colors">−&nbsp;Remove</button>
-      <button id="chaosBtn"
-        class="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 transition-colors">⚡&nbsp;Chaos</button>
+    <div class="ml-auto flex items-center gap-3">
+      <div class="hidden sm:flex items-center gap-2">
+        <svg viewBox="0 0 200 112" class="w-14">
+          <path d="M20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#1e293b" stroke-width="16" stroke-linecap="round"/>
+          <path id="spiArc" d="M20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#34d399" stroke-width="16"
+                stroke-linecap="round" stroke-dasharray="251.4" stroke-dashoffset="251.4"
+                style="transition: stroke-dashoffset .6s ease, stroke .6s ease"/>
+        </svg>
+        <div class="text-[10px] leading-tight">
+          <div class="text-slate-500 uppercase tracking-wider">SPI</div>
+          <div><span id="spiValue" class="font-mono text-slate-200 font-semibold">–</span> <span id="spiTier" class="font-mono text-slate-500">—</span></div>
+        </div>
+      </div>
+      <span id="wsPill" class="inline-flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-500">
+        <span id="wsDot" class="w-1.5 h-1.5 rounded-full bg-slate-500 pulse-ring"></span><span>ws idle</span>
+      </span>
     </div>
   </div>
+  <!-- Tab bar -->
+  <div class="max-w-7xl mx-auto px-4 pb-2 flex gap-1.5 flex-wrap" id="tabbar"></div>
 </header>
 
-<!-- ── Main ───────────────────────────────────────────────────────────── -->
-<main class="max-w-7xl mx-auto px-4 py-4 grid lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start">
+<!-- ── Main ───────────────────────────────────────────────────────── -->
+<main class="max-w-7xl mx-auto px-4 py-4">
+  <div id="panels"></div>
 
-  <!-- Left: key state + contention + workers -->
-  <section class="space-y-4 min-w-0">
-    <div class="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 flex items-center gap-3 flex-wrap">
-      <span class="text-xs uppercase tracking-wider text-slate-500">competing for</span>
-      <code id="currentKey" class="font-mono text-emerald-300">demo:orders</code>
-      <span id="keyState" class="ml-auto inline-flex items-center gap-2 text-sm text-slate-400">
-        <span id="keyDot" class="w-2 h-2 rounded-full bg-slate-600 pulse-ring"></span>
-        <span id="keyStateText">free</span>
-        <span id="keyVersion" class="font-mono text-xs text-slate-600"></span>
-      </span>
-      <span id="wsPill" class="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-500">
-        <span id="wsDot" class="w-1.5 h-1.5 rounded-full bg-slate-500 pulse-ring"></span><span>connecting…</span>
-      </span>
+  <!-- Shared event log -->
+  <div class="mt-4 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+    <div class="flex items-center justify-between mb-1.5">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Event log</h2>
+      <button id="clearLogBtn" class="text-[11px] text-slate-600 hover:text-slate-400">clear</button>
     </div>
-
-    <div id="contentionBanner" class="hidden rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 flex items-center gap-3">
-      <span class="relative flex h-2.5 w-2.5">
-        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-60"></span>
-        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400"></span>
-      </span>
-      <p class="text-sm text-amber-300"><b id="contentionCount">0 workers</b>&nbsp;contending for this key — grants are mutually exclusive, fences increase monotonically</p>
-    </div>
-
-    <div id="workers" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
-  </section>
-
-  <!-- Right: SPI gauge + fence timeline + event log -->
-  <aside class="space-y-4 lg:sticky lg:top-[76px]">
-
-    <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-      <div class="flex items-baseline justify-between mb-1">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Store Pressure Index</h2>
-        <span id="spiTier" class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">—</span>
-      </div>
-      <svg viewBox="0 0 200 112" class="w-full">
-        <path d="M20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#1e293b" stroke-width="14" stroke-linecap="round"/>
-        <path id="spiArc" d="M20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#34d399" stroke-width="14"
-              stroke-linecap="round" stroke-dasharray="251.4" stroke-dashoffset="251.4"
-              style="transition: stroke-dashoffset .6s ease, stroke .6s ease"/>
-        <text id="spiValue" x="100" y="88" text-anchor="middle" fill="#e2e8f0" font-size="30" font-family="ui-monospace,Menlo,monospace" font-weight="600">–</text>
-        <text x="20" y="111" fill="#475569" font-size="8" font-family="ui-monospace">0</text>
-        <text x="172" y="111" fill="#475569" font-size="8" font-family="ui-monospace">100</text>
-      </svg>
-      <p class="text-[11px] text-slate-600 leading-snug">renewals-as-sensors backpressure (INV-5): latency · failures · contention</p>
-    </div>
-
-    <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-      <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Fencing-token timeline</h2>
-      <div id="timeline" class="flex flex-wrap gap-1.5 min-h-[28px] max-h-36 overflow-y-auto">
-        <span class="text-xs text-slate-600">no grants observed yet</span>
-      </div>
-    </div>
-
-    <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-      <div class="flex items-center justify-between mb-2">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Event log</h2>
-        <button id="clearLogBtn" class="text-[11px] text-slate-600 hover:text-slate-400">clear</button>
-      </div>
-      <div id="log" class="space-y-1 max-h-72 overflow-y-auto font-mono text-[11px] leading-relaxed pr-1"></div>
-    </div>
-  </aside>
+    <div id="log" class="space-y-0.5 max-h-56 overflow-y-auto font-mono text-[11px] leading-relaxed pr-1"></div>
+  </div>
 </main>
-
-<footer class="max-w-7xl mx-auto px-4 pb-6 pt-2 text-[11px] text-slate-600">
-  REST: <code class="text-slate-500">POST /api/lock · POST /api/unlock · GET /api/describe/{key} · GET /api/locks?prefix=</code>
-  &nbsp;·&nbsp; WS: <code class="text-slate-500">/api/watch/{key}</code> (anonymized, ADR 0022) &nbsp;·&nbsp; every grant is Lua-guarded against Redis with a monotonic fence counter.
-</footer>
 
 <script>
 "use strict";
-
-/* ── state ─────────────────────────────────────────────────────────── */
-const HUES = [160, 265, 330, 42, 199, 12, 115, 290, 232, 350, 84, 187];
-const MAX_WORKERS = 12;
-const TTL_MS = 4000;
-
-const S = {
-  key: "demo:orders",
-  workers: [],            // {id, hue, el, status, token, fence, expiresAt, retryTimer}
-  nextId: 1,
-  ws: null,
-  wsAlive: false,
-  chaos: false,
-  chaosTimer: null,
-  lastLocalGrantAt: 0,
-  seenVersions: new Set(),
-};
-
-const $ = (sel) => document.querySelector(sel);
-
-/* ── api helpers ───────────────────────────────────────────────────── */
-async function post(path, body) {
-  try {
-    const res = await fetch(path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return await res.json();
-  } catch (e) {
-    return { error: String(e) };
-  }
-}
-
-/* ── event log ─────────────────────────────────────────────────────── */
-const LOG_KINDS = {
-  grant:   "text-emerald-300",
-  release: "text-sky-300",
-  lost:    "text-rose-300",
-  wait:    "text-amber-300",
-  peer:    "text-violet-300",
-  info:    "text-slate-500",
-  error:   "text-rose-400",
-};
+const $ = (s) => document.querySelector(s);
+const LOG_KINDS = { grant:"text-emerald-300", release:"text-sky-300", lost:"text-rose-300",
+  wait:"text-amber-300", peer:"text-violet-300", info:"text-slate-500", error:"text-rose-400", ok:"text-emerald-300" };
 function log(kind, msg) {
   const t = new Date();
-  const hh = String(t.getHours()).padStart(2, "0");
-  const mm = String(t.getMinutes()).padStart(2, "0");
-  const ss = String(t.getSeconds()).padStart(2, "0");
-  const ms = String(t.getMilliseconds()).padStart(3, "0");
+  const ts = `${String(t.getHours()).padStart(2,"0")}:${String(t.getMinutes()).padStart(2,"0")}:${String(t.getSeconds()).padStart(2,"0")}.${String(t.getMilliseconds()).padStart(3,"0")}`;
   const row = document.createElement("div");
   row.className = LOG_KINDS[kind] || LOG_KINDS.info;
-  row.textContent = `${hh}:${mm}:${ss}.${ms}  ${msg}`;
-  const box = $("#log");
-  box.prepend(row);
-  while (box.childElementCount > 150) box.lastElementChild.remove();
+  row.textContent = `${ts}  ${msg}`;
+  const box = $("#log"); box.prepend(row);
+  while (box.childElementCount > 200) box.lastElementChild.remove();
 }
 $("#clearLogBtn").onclick = () => ($("#log").innerHTML = "");
 
-/* ── workers ───────────────────────────────────────────────────────── */
+async function api(method, path, body) {
+  try {
+    const res = await fetch(path, {
+      method,
+      headers: body ? { "content-type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const j = await res.json().catch(() => ({ error: "non-json response" }));
+    return j;
+  } catch (e) { return { error: String(e) }; }
+}
+const post = (path, body) => api("POST", path, body);
+
+/* ── generic panel machinery ──────────────────────────────────────── */
+const TABS = [];
+function tab(id, label, html) { TABS.push({ id, label, html }); }
+
+function field(label, id, type = "text", value = "", extra = "") {
+  return `<label class="block"><span class="text-[10px] uppercase tracking-wider text-slate-500">${label}</span>
+    <input id="${id}" type="${type}" value="${value}" ${extra}
+    class="mt-0.5 w-full bg-slate-900 border border-slate-700 focus:border-emerald-600 rounded-lg px-2.5 py-1.5 text-sm font-mono text-slate-100 outline-none transition-colors"></label>`;
+}
+function btn(id, label, cls = "emerald") {
+  const c = { emerald: "bg-emerald-600/20 border-emerald-600/50 text-emerald-300 hover:bg-emerald-600/30",
+              slate: "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700",
+              rose: "bg-rose-600/15 border-rose-600/40 text-rose-300 hover:bg-rose-600/25" }[cls];
+  return `<button id="${id}" class="px-3 py-1.5 text-xs font-semibold rounded-lg border ${c} transition-colors">${label}</button>`;
+}
+function out(id) {
+  return `<pre id="${id}" class="mt-2 text-[11px] font-mono text-slate-400 bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 max-h-44 overflow-auto whitespace-pre-wrap">—</pre>`;
+}
+function card(title, subtitle, inner) {
+  return `<div class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+    <h3 class="text-sm font-semibold text-slate-200">${title}</h3>
+    <p class="text-[11px] text-slate-500 mb-3">${subtitle}</p>${inner}</div>`;
+}
+function show(id, obj) { $(id).textContent = JSON.stringify(obj, null, 2); }
+
+/* ══ TAB: Mutex (worker grid) ═════════════════════════════════════ */
+tab("mutex", "Mutex", `
+  <div class="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-2.5 flex items-center gap-3 flex-wrap mb-3">
+    <span class="text-[10px] uppercase tracking-wider text-slate-500">key</span>
+    <input id="mKey" value="demo:orders" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-sm font-mono text-slate-100 w-52 outline-none">
+    <span class="text-[10px] uppercase tracking-wider text-slate-500">ttl ms</span>
+    <input id="mTtl" type="number" value="4000" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-sm font-mono text-slate-100 w-20 outline-none">
+    <span class="text-[10px] uppercase tracking-wider text-slate-500">watchdog</span>
+    <select id="mWd" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"><option value="false">off</option><option value="true">on</option></select>
+    <span class="text-[10px] uppercase tracking-wider text-slate-500">policy</span>
+    <select id="mPolicy" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"><option>balanced</option><option>cowardly</option><option>aggressive</option></select>
+    ${btn("mApply","Apply","slate")}
+    <span class="ml-auto inline-flex items-center gap-2 text-xs text-slate-400">
+      <span id="keyDot" class="w-2 h-2 rounded-full bg-slate-600 pulse-ring"></span><span id="keyStateText">free</span><span id="keyVersion" class="font-mono text-[10px] text-slate-600"></span>
+    </span>
+  </div>
+  <div id="contentionBanner" class="hidden mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-300">
+    <b id="contentionCount">0</b>&nbsp;workers contending — grants are mutually exclusive, fences climb monotonically
+  </div>
+  <div class="flex gap-2 mb-3 flex-wrap">
+    ${btn("addW","＋ Add worker")}${btn("rmW","− Remove","slate")}${btn("chaosB","⚡ Chaos","slate")}
+    <span class="ml-auto text-[11px] text-slate-600" id="tlWrap">fence timeline: <span id="timeline" class="font-mono text-slate-400">—</span></span>
+  </div>
+  <div id="workers" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+`);
+
+/* ══ TAB: Extend / Admin ══════════════════════════════════════════ */
+tab("extend", "Extend · Admin", `
+  <div class="grid md:grid-cols-3 gap-3">
+  ${card("Extend lease","Ownership-checked renewal via extend.lua",`
+    ${field("key","exKey","text","demo:orders")}
+    <div class="grid grid-cols-2 gap-2 mt-2">${field("token","exToken")}${field("ttl ms","exTtl","number","4000")}</div>
+    <div class="mt-2">${btn("exGo","Extend")}</div>${out("#exOut")}`)}
+  ${card("Force unlock","Admin break-glass — deletes key with NO ownership check",`
+    ${field("key","fuKey","text","demo:orders")}
+    <div class="mt-2">${btn("fuGo","Force unlock","rose")}</div>${out("#fuOut")}`)}
+  ${card("List locks","SCAN-held keys under a prefix with remaining TTLs",`
+    ${field("prefix","lpPrefix","text","demo:")}
+    <div class="mt-2">${btn("lpGo","Scan","slate")}</div>${out("#lpOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Read-Write ══════════════════════════════════════════════ */
+tab("rw", "Read-Write", `
+  <div class="grid md:grid-cols-3 gap-3">
+  ${card("Acquire read","Multiple readers coexist; writers excluded",`
+    ${field("key","rwKey","text","demo:rw")}
+    <div class="grid grid-cols-2 gap-2 mt-2">${field("ttl ms","rwTtl","number","4000")}</div>
+    <div class="mt-2 flex gap-2">${btn("rwR","Read lock")}${btn("rwW","Write lock")}</div>${out("#rwOut")}`)}
+  ${card("Release","Release by fence + mode",`
+    <div class="grid grid-cols-2 gap-2">${field("key","rwRKey","text","demo:rw")}${field("fence","rwRFence","number","")}</div>
+    <div class="mt-2">${btn("rwRel","Release","rose")}</div>${out("#rwRelOut")}`)}
+  ${card("Live state","describe the key",`
+    ${field("key","rwDKey","text","demo:rw")}
+    <div class="mt-2">${btn("rwDesc","Describe","slate")}</div>${out("#rwDescOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Semaphore ═══════════════════════════════════════════════ */
+tab("sem", "Semaphore", `
+  <div class="grid md:grid-cols-2 gap-3">
+  ${card("Acquire permit","ZSET scored by Redis-side expiry instants",`
+    <div class="grid grid-cols-3 gap-2">${field("key","smKey","text","demo:sem")}${field("max permits","smMax","number","3")}${field("ttl ms","smTtl","number","6000")}</div>
+    <div class="mt-2 flex gap-2">${btn("smGo","Acquire")}${btn("smDesc","Describe key","slate")}</div>${out("#smOut")}`)}
+  ${card("Release permit","Return a permit by fence",`
+    <div class="grid grid-cols-2 gap-2">${field("key","smRKey","text","demo:sem")}${field("fence","smRFence","number","")}</div>
+    <div class="mt-2">${btn("smRel","Release","rose")}</div>${out("#smRelOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Reentrant ═══════════════════════════════════════════════ */
+tab("reent", "Reentrant", `
+  <div class="grid md:grid-cols-2 gap-3">
+  ${card("Acquire / re-enter","Same owner re-enters freely; hold count tracked by hash",`
+    ${field("key","reKey","text","demo:reent")}
+    <div class="mt-2">${field("owner id (blank = new)","reOwner","text","", 'placeholder="auto"')}
+    <div class="mt-2 flex gap-2">${btn("reGo","Acquire")}${btn("reRel","Release one","slate")}${btn("reRelAll","Release all","rose")}</div>${out("#reOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Fair FIFO ═══════════════════════════════════════════════ */
+tab("fair", "Fair FIFO", `
+  <div class="grid md:grid-cols-2 gap-3">
+  ${card("Queue for the lock","FIFO list + handoff-on-release: grants follow arrival order",`
+    ${field("key","faKey","text","demo:fair")}
+    <div class="mt-2">${field("ttl ms","faTtl","number","5000")}</div>
+    <div class="mt-2">${btn("faGo","Queue + acquire")}</div>${out("#faOut")}`)}
+  ${card("Release","Hands the grant to the next in line",`
+    <div class="grid grid-cols-2 gap-2">${field("key","faRKey","text","demo:fair")}${field("fence","faRFence","number","")}</div>
+    <div class="mt-2">${btn("faRel","Release","rose")}</div>${out("#faRelOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Multi-lock ══════════════════════════════════════════════ */
+tab("multi", "Multi-lock", `
+  <div class="grid md:grid-cols-2 gap-3">
+  ${card("Acquire all — or nothing","Sorted acquisition + rollback retry (ADR 0019)",`
+    ${field("keys (comma-separated)","muKeys","text","demo:m1, demo:m2, demo:m3")}
+    <div class="grid grid-cols-2 gap-2 mt-2">${field("ttl ms","muTtl","number","8000")}${field("wait ms","muWait","number","2000")}</div>
+    <div class="mt-2">${btn("muGo","Acquire all")}</div>${out("#muOut")}`)}
+  ${card("Release all","By multi_id",`
+    ${field("multi_id","muRId")}
+    <div class="mt-2">${btn("muRel","Release all","rose")}</div>${out("#muRelOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Latch ═══════════════════════════════════════════════════ */
+tab("latch", "Latch", `
+  <div class="grid md:grid-cols-4 gap-3">
+  ${card("Create","NX-init: first creator wins",`
+    <div class="grid grid-cols-2 gap-2">${field("key","lcKey","text","demo:latch")}${field("count","lcCount","number","3")}</div>
+    <div class="mt-2">${btn("lcGo","Create")}</div>${out("#lcOut")}`)}
+  ${card("Count down","Idempotent at zero",`
+    ${field("key","lcdKey","text","demo:latch")}
+    <div class="mt-2">${btn("lcdGo","Count down")}${btn("lcqGo","Read count","slate")}</div>${out("#lcdOut")}`)}
+  ${card("Wait until zero","Blocks up to timeout",`
+    <div class="grid grid-cols-2 gap-2">${field("key","lcwKey","text","demo:latch")}${field("timeout ms","lcwTo","number","5000")}</div>
+    <div class="mt-2">${btn("lcwGo","Wait")}</div>${out("#lcwOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Semantic ════════════════════════════════════════════════ */
+tab("semantic", "Semantic", `
+  <div class="grid md:grid-cols-2 gap-3">
+  ${card("Protected-resource simulator","Write hash fields the predicates evaluate against (conventionally {lock}:data)",`
+    <div class="grid grid-cols-3 gap-2">${field("hash key","sdKey","text","demo:sem:data")}${field("field","sdField","text","balance")}${field("value","sdValue","text","100")}</div>
+    <div class="mt-2 flex gap-2">${btn("sdSet","HSET","slate")}${btn("sdGet","HGETALL","slate")}</div>${out("#sdOut")}`)}
+  ${card("Acquire where…","Predicates run atomically INSIDE the grant script — zero TOCTOU",`
+    ${field("lock key","saKey","text","demo:sem")}
+    <div class="grid grid-cols-3 gap-2 mt-2">
+      ${field("field","saF1","text","balance")}<select id="saOp1" class="mt-4 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200"><option>gt</option><option>eq</option><option>absent</option></select>${field("value","saV1","text","50")}
+    </div>
+    <div class="grid grid-cols-3 gap-2 mt-2">
+      ${field("field 2 (optional)","saF2","text","")}
+      <select id="saOp2" class="mt-4 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200"><option>absent</option><option>eq</option><option>gt</option></select>
+      ${field("value 2","saV2","text","")}
+    </div>
+    <div class="mt-2">${btn("saGo","Acquire where")}</div>${out("#saOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Testament ═══════════════════════════════════════════════ */
+tab("testament", "Testament", `
+  <div class="grid md:grid-cols-2 gap-3">
+  ${card("Set testament","Dying leader stores a payload the successor reads after acquiring",`
+    <div class="grid grid-cols-2 gap-2">${field("key","tsKey","text","demo:tst")}${field("owner token","tsToken")}</div>
+    <div class="grid grid-cols-2 gap-2 mt-2">${field("ttl ms","tsTtl","number","8000")}${field("payload","tsPayload","text","checkpoint=4172")}</div>
+    <div class="mt-2">${btn("tsGo","Set testament")}</div>${out("#tsOut")}`)}
+  ${card("Read testament","What the previous holder left behind",`
+    ${field("key","trKey","text","demo:tst")}
+    <div class="mt-2">${btn("trGo","Read","slate")}</div>${out("#trOut")}`)}
+  </div>
+`);
+
+/* ══ TAB: Sessions ════════════════════════════════════════════════ */
+tab("sessions", "Sessions", `
+  <div class="grid md:grid-cols-3 gap-3">
+  ${card("Register","Server-authoritative liveness domain (ADR 0027)",`
+    <div class="grid grid-cols-2 gap-2">${field("client id","seClient","text","client-a")}${field("ttl ms","seTtl","number","6000")}</div>
+    <div class="mt-2">${btn("seGo","Register")}</div>${out("#seOut")}`)}
+  ${card("Heartbeat","ttl/3 cadence; ttl/20 rate floor",`
+    ${field("session token","seHb")}
+    <div class="mt-2">${btn("seHbGo","Heartbeat")}</div>${out("#seHbOut")}`)}
+  ${card("Close","Releases every lock bound to the session",`
+    ${field("session token","seCl")}
+    <div class="mt-2">${btn("seClGo","Close","rose")}</div>${out("#seClOut")}`)}
+  </div>
+  <div class="mt-3 rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+    <h3 class="text-sm font-semibold text-slate-200">Session-bound mutex</h3>
+    <p class="text-[11px] text-slate-500 mb-3">Acquire with a session token — if the session dies, the sweeper releases the lock within ttl + sweep interval</p>
+    <div class="grid md:grid-cols-3 gap-2 items-end">
+      ${field("key","sbKey","text","demo:sess-lock")}${field("session token","sbToken")}${btn("sbGo","Acquire bound")}
+    </div>${out("#sbOut")}
+  </div>
+`);
+
+/* ══ TAB: Watch ═══════════════════════════════════════════════════ */
+tab("watch", "Watch", `
+  <div class="grid md:grid-cols-2 gap-3">
+  ${card("WebSocket watch stream","Anonymized Acquired/Freed events, one poller per key (ADR 0029)",`
+    ${field("key","wKey","text","demo:orders")}
+    <div class="mt-2 flex gap-2">${btn("wOpen","Open stream")}${btn("wClose","Close","rose")}</div>${out("#wOut")}`)}
+  ${card("Describe key","held + version + remaining ttl",`
+    ${field("key","dKey","text","demo:orders")}
+    <div class="mt-2">${btn("dGo","Describe","slate")}</div>${out("#dOut")}`)}
+  </div>
+`);
+
+/* ── render tabs + panels ─────────────────────────────────────────── */
+const bar = $("#tabbar"), panels = $("#panels");
+TABS.forEach((t, i) => {
+  const b = document.createElement("button");
+  b.className = "tabbtn px-3 py-1 text-xs font-semibold rounded-lg border border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-200 transition-colors";
+  b.textContent = t.label; b.dataset.tab = t.id;
+  b.onclick = () => {
+    document.querySelectorAll(".tabbtn").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    document.querySelectorAll(".panel").forEach((p) => p.classList.add("hidden"));
+    $(`#panel-${t.id}`).classList.remove("hidden");
+  };
+  bar.appendChild(b);
+  const p = document.createElement("div");
+  p.id = `panel-${t.id}`; p.className = "panel" + (i ? " hidden" : "");
+  p.innerHTML = t.html; panels.appendChild(p);
+});
+bar.firstChild.classList.add("active");
+
+/* ── mutex tab logic ─────────────────────────────────────────────── */
+const HUES = [160, 265, 330, 42, 199, 12, 115, 290, 232, 350, 84, 187];
+const M = { key: "demo:orders", workers: [], nextId: 1, chaos: false, chaosTimer: null, lastGrant: 0, seen: new Set(), ws: null };
+
+function mOpts() {
+  M.key = $("#mKey").value.trim() || M.key;
+  return { key: M.key, ttl_ms: Number($("#mTtl").value) || 4000,
+    watchdog: $("#mWd").value === "true", safety_policy: $("#mPolicy").value };
+}
+$("#mApply").onclick = () => { mOpts(); log("info", `mutex settings → key="${M.key}"`); connectWatch(); refreshKey(); };
+
 function workerCard(w) {
   const el = document.createElement("div");
   el.className = "rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden";
@@ -192,308 +345,236 @@ function workerCard(w) {
     <div class="h-1" style="background:hsl(${w.hue},75%,55%)"></div>
     <div class="p-3 space-y-2.5">
       <div class="flex items-center justify-between gap-2">
-        <span class="font-mono text-sm font-semibold" style="color:hsl(${w.hue},80%,68%)">worker-${String(w.id).padStart(2, "0")}</span>
+        <span class="font-mono text-sm font-semibold" style="color:hsl(${w.hue},80%,68%)">worker-${String(w.id).padStart(2,"0")}</span>
         <span class="js-status text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">IDLE</span>
       </div>
       <div class="flex items-baseline justify-between font-mono text-xs">
-        <span class="js-fence text-slate-500">fence —</span>
-        <span class="js-ttl text-slate-600"></span>
+        <span class="js-fence text-slate-500">fence —</span><span class="js-ttl text-slate-600"></span>
       </div>
       <div class="grid grid-cols-2 gap-2">
-        <button class="js-acquire py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/15 border border-emerald-600/40 text-emerald-300 hover:bg-emerald-600/25 transition-colors">Acquire</button>
-        <button class="js-release py-1.5 rounded-lg text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-400 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 transition-colors" disabled>Release</button>
+        <button class="js-acq py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/15 border border-emerald-600/40 text-emerald-300 hover:bg-emerald-600/25 transition-colors">Acquire</button>
+        <button class="js-rel py-1.5 rounded-lg text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-400 hover:bg-slate-700 disabled:opacity-40 transition-colors" disabled>Release</button>
       </div>
     </div>`;
-  el.querySelector(".js-acquire").onclick = () => acquireClick(w);
-  el.querySelector(".js-release").onclick = () => releaseClick(w);
+  el.querySelector(".js-acq").onclick = () => mAcquire(w);
+  el.querySelector(".js-rel").onclick = () => mRelease(w);
   return el;
 }
-
-const STATUS_STYLE = {
-  idle:    ["bg-slate-800 text-slate-400"],
-  held:    ["bg-emerald-500/20 text-emerald-300"],
-  waiting: ["bg-amber-500/20 text-amber-300 animate-pulse"],
-  lost:    ["bg-rose-500/20 text-rose-300"],
-};
-
-function setStatus(w, status) {
-  w.status = status;
+const ST = { idle:"bg-slate-800 text-slate-400", held:"bg-emerald-500/20 text-emerald-300", waiting:"bg-amber-500/20 text-amber-300 animate-pulse", lost:"bg-rose-500/20 text-rose-300" };
+function mSetStatus(w, s) {
+  w.status = s;
   const pill = w.el.querySelector(".js-status");
-  pill.className = `js-status text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full ${STATUS_STYLE[status]}`;
-  pill.textContent = status.toUpperCase();
-
-  const btnA = w.el.querySelector(".js-acquire");
-  const btnR = w.el.querySelector(".js-release");
-  btnA.disabled = status === "held";
-  btnR.disabled = status !== "held";
-  btnA.textContent =
-    status === "waiting" ? "Stop retry" :
-    status === "held" ? "Held" : "Acquire";
-  btnR.disabled = status !== "held";
-
-  if (status === "idle") {
-    w.el.querySelector(".js-fence").textContent = "fence —";
-    w.el.querySelector(".js-fence").className = "js-fence text-slate-500";
-    w.el.querySelector(".js-ttl").textContent = "";
-  } else if (status === "lost") {
-    w.el.querySelector(".js-ttl").textContent = "";
-  }
-  updateContention();
+  pill.className = `js-status text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full ${ST[s]}`;
+  pill.textContent = s.toUpperCase();
+  w.el.querySelector(".js-acq").disabled = s === "held";
+  w.el.querySelector(".js-acq").textContent = s === "waiting" ? "Stop retry" : s === "held" ? "Held" : "Acquire";
+  w.el.querySelector(".js-rel").disabled = s !== "held";
+  if (s === "idle") { w.el.querySelector(".js-fence").textContent = "fence —"; w.el.querySelector(".js-fence").className = "js-fence text-slate-500"; w.el.querySelector(".js-ttl").textContent = ""; }
+  mContention();
 }
+function mAdd() { if (M.workers.length >= 12) return;
+  const w = { id: M.nextId++, hue: HUES[(M.nextId-2)%HUES.length], status:"idle", token:null, fence:0, exp:0, timer:null, el:null };
+  w.el = workerCard(w); $("#workers").appendChild(w.el); M.workers.push(w); }
+function mRm() { if (M.workers.length <= 1) return;
+  const w = M.workers.pop(); mStopRetry(w);
+  if (w.token) post("/api/unlock", { key: M.key, token: w.token });
+  w.el.remove(); mContention(); }
+function mStopRetry(w) { if (w.timer) { clearTimeout(w.timer); w.timer = null; } }
+$("#addW").onclick = mAdd; $("#rmW").onclick = mRm;
 
-function addWorker() {
-  if (S.workers.length >= MAX_WORKERS) return;
-  const w = {
-    id: S.nextId++,
-    hue: HUES[(S.nextId - 2) % HUES.length],
-    status: "idle", token: null, fence: 0, expiresAt: 0,
-    retryTimer: null, el: null,
-  };
-  w.el = workerCard(w);
-  $("#workers").appendChild(w.el);
-  S.workers.push(w);
-}
-
-async function removeWorker() {
-  if (S.workers.length <= 1) return;
-  const w = S.workers[S.workers.length - 1];
-  stopRetry(w);
-  if (w.status === "held" && w.token) post("/api/unlock", { key: S.key, token: w.token });
-  w.el.remove();
-  S.workers.pop();
-  updateContention();
-}
-
-function stopRetry(w) {
-  if (w.retryTimer) { clearTimeout(w.retryTimer); w.retryTimer = null; }
-}
-
-/* ── acquire / release flows ───────────────────────────────────────── */
-function acquireClick(w) {
+async function mAcquire(w) {
   if (w.status === "held") return;
-  if (w.status === "waiting") {           // acts as "stop retrying"
-    stopRetry(w);
-    setStatus(w, "idle");
-    log("info", `worker-${w.id} gave up on "${S.key}"`);
-    return;
-  }
-  setStatus(w, "waiting");
-  log("wait", `worker-${w.id} → TRY LOCK "${S.key}"`);
-  attempt(w);
+  if (w.status === "waiting") { mStopRetry(w); mSetStatus(w,"idle"); log("info",`worker-${w.id} gave up`); return; }
+  mSetStatus(w, "waiting");
+  log("wait", `worker-${w.id} → TRY LOCK "${M.key}"`);
+  mAttempt(w);
 }
-
-async function attempt(w) {
-  const r = await post("/api/lock", { key: S.key, ttl_ms: TTL_MS });
+async function mAttempt(w) {
+  const r = await post("/api/lock", mOpts());
   if (r.result === "granted") {
-    w.token = r.token;
-    w.fence = r.fence;
-    w.expiresAt = performance.now() + r.ttl_ms;
-    S.lastLocalGrantAt = Date.now();
-    setStatus(w, "held");
+    w.token = r.token; w.fence = r.fence; w.exp = performance.now() + r.ttl_ms; M.lastGrant = Date.now();
+    mSetStatus(w, "held");
     w.el.querySelector(".js-fence").textContent = `fence #${r.fence}`;
     w.el.querySelector(".js-fence").className = "js-fence text-emerald-300";
-    log("grant", `GRANTED → worker-${w.id} holds "${S.key}" · fence #${r.fence} · ttl ${r.ttl_ms}ms`);
-    pushTimeline(r.fence, w.id, true);
-    refreshKeyState();
+    log("grant", `GRANTED → worker-${w.id} holds "${M.key}" · fence #${r.fence}${r.watchdog ? " · watchdog" : ""}`);
+    tlPush(r.fence); refreshKey();
   } else if (r.result === "held") {
-    if (!w.retryTimer) log("wait", `DENIED  → "${S.key}" already held · worker-${w.id} retrying…`);
-    w.retryTimer = setTimeout(() => {
-      w.retryTimer = null;
-      if (w.status === "waiting") attempt(w);
-    }, 550);
-    refreshKeyState();
-  } else {
-    setStatus(w, "lost");
-    log("error", `ERROR   → ${r.error || "backend failure"}`);
-  }
+    if (!w.timer) log("wait", `DENIED → "${M.key}" held · worker-${w.id} retrying…`);
+    w.timer = setTimeout(() => { w.timer = null; if (w.status === "waiting") mAttempt(w); }, 550);
+    refreshKey();
+  } else { mSetStatus(w,"lost"); log("error", `ERROR → ${r.error || "backend failure"}`); }
 }
-
-function releaseClick(w) {
-  stopRetry(w);
-  if (w.token) doRelease(w);
-  else setStatus(w, "idle");
+async function mRelease(w) {
+  mStopRetry(w);
+  if (!w.token) { mSetStatus(w,"idle"); return; }
+  const token = w.token, fence = w.fence; w.token = null;
+  const r = await post("/api/unlock", { key: M.key, token });
+  if (r.result === "released") { mSetStatus(w,"idle"); log("release", `RELEASED → worker-${w.id} freed "${M.key}" · was fence #${fence}`); }
+  else if (r.result === "lost") mLost(w, "token no longer owns the lock");
+  else { mSetStatus(w,"idle"); log("error", `ERROR → ${r.error || "unlock failed"}`); }
+  refreshKey();
 }
-
-async function doRelease(w) {
-  const token = w.token, fence = w.fence;
-  w.token = null;
-  const r = await post("/api/unlock", { key: S.key, token });
-  if (r.result === "released") {
-    setStatus(w, "idle");
-    log("release", `RELEASED → worker-${w.id} freed "${S.key}" · was fence #${fence}`);
-  } else if (r.result === "lost") {
-    markLost(w, "token no longer owns the lock");
-  } else {
-    setStatus(w, "idle");
-    log("error", `ERROR   → ${r.error || "unlock failed"}`);
-  }
-  refreshKeyState();
-}
-
-function markLost(w, why) {
-  stopRetry(w);
-  w.token = null;
-  setStatus(w, "lost");
+function mLost(w, why) {
+  mStopRetry(w); w.token = null; mSetStatus(w,"lost");
   w.el.querySelector(".js-fence").textContent = `fence #${w.fence} LOST`;
   w.el.querySelector(".js-fence").className = "js-fence text-rose-300";
-  log("lost", `LOST    → worker-${w.id} lost "${S.key}" (${why})`);
-  setTimeout(() => { if (w.status === "lost") setStatus(w, "idle"); }, 2500);
+  log("lost", `LOST → worker-${w.id} lost "${M.key}" (${why})`);
+  setTimeout(() => { if (w.status === "lost") mSetStatus(w,"idle"); }, 2500);
 }
-
-/* ── ttl countdown ticker ──────────────────────────────────────────── */
 setInterval(() => {
   const now = performance.now();
-  for (const w of S.workers) {
-    if (w.status === "held") {
-      const left = Math.max(0, (w.expiresAt - now) / 1000);
-      w.el.querySelector(".js-ttl").textContent = `${left.toFixed(1)}s`;
-      if (left <= 0) markLost(w, "lease expired (no watchdog)");
-    }
+  for (const w of M.workers) if (w.status === "held") {
+    const left = Math.max(0, (w.exp - now) / 1000);
+    w.el.querySelector(".js-ttl").textContent = `${left.toFixed(1)}s`;
+    if (left <= 0) mLost(w, "lease expired (no watchdog)");
   }
 }, 100);
-
-/* ── contention indicator ──────────────────────────────────────────── */
-function updateContention() {
-  const n = S.workers.filter((w) => w.status === "waiting").length;
+function mContention() {
+  const n = M.workers.filter((w) => w.status === "waiting").length;
   $("#contentionBanner").classList.toggle("hidden", n < 2);
-  $("#contentionCount").textContent = `${n} worker${n === 1 ? "" : "s"}`;
+  $("#contentionCount").textContent = n;
 }
+function tlPush(fence) {
+  if (M.seen.has(fence)) return; M.seen.add(fence);
+  const chips = [fence, ...[...M.seen].filter((f) => f !== fence)].slice(0, 24);
+  $("#timeline").textContent = chips.map((f) => `#${f}`).join(" → ");
+}
+$("#chaosB").onclick = () => {
+  M.chaos = !M.chaos; const b = $("#chaosB");
+  b.className = M.chaos
+    ? "px-3 py-1.5 text-xs font-semibold rounded-lg border bg-amber-500/20 border-amber-500/50 text-amber-300 transition-colors"
+    : "px-3 py-1.5 text-xs font-semibold rounded-lg border bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700 transition-colors";
+  if (M.chaos) { log("info","chaos ON");
+    M.chaosTimer = setInterval(() => {
+      if (!M.workers.length) return;
+      const w = M.workers[Math.floor(Math.random() * M.workers.length)];
+      if (w.status === "idle") mAcquire(w);
+      else if (w.status === "held" && Math.random() < 0.6) mRelease(w);
+    }, 650);
+  } else { clearInterval(M.chaosTimer); log("info","chaos OFF"); }
+};
 
-/* ── key banner + describe polling ─────────────────────────────────── */
-async function refreshKeyState() {
+/* ── key state + ws ──────────────────────────────────────────────── */
+async function refreshKey() {
   try {
-    const res = await fetch(`/api/describe/${encodeURIComponent(S.key)}`);
-    const d = await res.json();
-    $("#keyStateText").textContent = d.held
-      ? `HELD · ttl ${(d.ttl_ms / 1000).toFixed(1)}s`
-      : "free";
+    const d = await api("GET", `/api/describe/${encodeURIComponent(M.key)}`);
+    $("#keyStateText").textContent = d.held ? `HELD · ${(d.ttl_ms/1000).toFixed(1)}s` : "free";
     $("#keyDot").className = `w-2 h-2 rounded-full ${d.held ? "bg-emerald-400" : "bg-slate-600"} pulse-ring`;
     $("#keyVersion").textContent = d.version ? `v${d.version}` : "";
-  } catch (_) { /* backend briefly unavailable */ }
+  } catch (_) {}
 }
-setInterval(refreshKeyState, 1000);
+setInterval(refreshKey, 1000);
 
-/* ── fencing-token timeline ────────────────────────────────────────── */
-function pushTimeline(fence, who, local) {
-  if (S.seenVersions.has(fence)) return;
-  S.seenVersions.add(fence);
-  const box = $("#timeline");
-  if (box.dataset.empty !== "1") box.innerHTML = "";
-  box.dataset.empty = "1";
-  const chip = document.createElement("span");
-  chip.className = local
-    ? "inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono"
-    : "inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/30 text-violet-300 text-[11px] font-mono";
-  chip.textContent = local ? `#${fence} w${who}` : `#${fence}`;
-  chip.title = local ? `granted to worker-${who}` : "observed via watch stream";
-  box.prepend(chip);
-  while (box.childElementCount > 40) box.lastElementChild.remove();
-}
-
-/* ── websocket watch stream ────────────────────────────────────────── */
-function setWsPill(state, text) {
-  const colors = { live: "bg-emerald-400", down: "bg-rose-400", connecting: "bg-slate-500" };
-  $("#wsDot").className = `w-1.5 h-1.5 rounded-full ${colors[state]} pulse-ring`;
+function setWs(state, text) {
+  const c = { live:"bg-emerald-400", down:"bg-rose-400", idle:"bg-slate-500" }[state];
+  $("#wsDot").className = `w-1.5 h-1.5 rounded-full ${c} pulse-ring`;
   $("#wsPill").lastElementChild.textContent = text;
 }
-
 function connectWatch() {
-  if (S.ws) { S.ws.onclose = null; S.ws.close(); S.ws = null; }
-  S.seenVersions.clear();
-  const box = $("#timeline");
-  box.innerHTML = '<span class="text-xs text-slate-600">no grants observed yet</span>';
-  box.dataset.empty = "";
-
+  if (M.ws) { M.ws.onclose = null; M.ws.close(); M.ws = null; }
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${location.host}/api/watch/${encodeURIComponent(S.key)}`);
-  S.ws = ws;
-  setWsPill("connecting", "connecting…");
-
-  ws.onopen = () => { S.wsAlive = true; setWsPill("live", "watch live"); };
+  const ws = new WebSocket(`${proto}//${location.host}/api/watch/${encodeURIComponent(M.key)}`);
+  M.ws = ws; setWs("idle","connecting…");
+  ws.onopen = () => setWs("live", `watch: ${M.key}`);
   ws.onmessage = (msg) => {
-    let ev;
-    try { ev = JSON.parse(msg.data); } catch (_) { return; }
-    if (ev.event === "acquired") {
-      pushTimeline(ev.version, null, false);
-      const justGrantedLocally = Date.now() - S.lastLocalGrantAt < 500;
-      if (!justGrantedLocally) log("peer", `WATCH   → "${S.key}" ACQUIRED v${ev.version}`);
-    } else if (ev.event === "freed") {
-      const holders = S.workers.filter((w) => w.status === "held");
-      if (holders.length) holders.forEach((w) => markLost(w, "freed event from store"));
-      else log("peer", `WATCH   → "${S.key}" FREED v${ev.version}`);
+    let ev; try { ev = JSON.parse(msg.data); } catch (_) { return; }
+    if (ev.event === "acquired") { tlPush(ev.version);
+      if (Date.now() - M.lastGrant > 500) log("peer", `WATCH → "${M.key}" ACQUIRED v${ev.version}`); }
+    else if (ev.event === "freed") {
+      const holders = M.workers.filter((w) => w.status === "held");
+      if (holders.length) holders.forEach((w) => mLost(w, "freed event from store"));
+      else log("peer", `WATCH → "${M.key}" FREED v${ev.version}`);
     }
-    refreshKeyState();
+    refreshKey();
   };
-  ws.onclose = () => {
-    S.wsAlive = false;
-    setWsPill("down", "disconnected");
-    setTimeout(() => { if (S.ws === ws || !S.ws) connectWatch(); }, 1500);
-  };
+  ws.onclose = () => { setWs("down","disconnected"); setTimeout(() => { if (!M.ws || M.ws === ws) connectWatch(); }, 1500); };
 }
 
-/* ── SPI gauge ─────────────────────────────────────────────────────── */
+/* ── extend / admin ──────────────────────────────────────────────── */
+$("#exGo").onclick = async () => { const r = await post("/api/extend", { key: $("#exKey").value.trim(), token: $("#exToken").value.trim(), ttl_ms: Number($("#exTtl").value) || 4000 }); show("#exOut", r); log(r.result === "extended" ? "ok" : "wait", `extend → ${r.result}`); };
+$("#fuGo").onclick = async () => { const r = await post("/api/force-unlock", { key: $("#fuKey").value.trim() }); show("#fuOut", r); log("lost", `force-unlock "${$("#fuKey").value.trim()}" → released=${r.released}`); };
+$("#lpGo").onclick = async () => { const r = await api("GET", `/api/locks?prefix=${encodeURIComponent($("#lpPrefix").value.trim())}`); show("#lpOut", r); log("info", `scan "${$("#lpPrefix").value.trim()}*" → ${r.locks?.length ?? "?"} keys`); };
+
+/* ── rw ──────────────────────────────────────────────────────────── */
+$("#rwR").onclick = async () => { const r = await post("/api/rw/read", { key: $("#rwKey").value.trim(), ttl_ms: Number($("#rwTtl").value) }); show("#rwOut", r); if (r.result === "acquired") log("grant", `READ lock fence #${r.fence}`); else log("wait", `read → ${r.result || r.error}`); };
+$("#rwW").onclick = async () => { const r = await post("/api/rw/write", { key: $("#rwKey").value.trim(), ttl_ms: Number($("#rwTtl").value) }); show("#rwOut", r); if (r.result === "acquired") log("grant", `WRITE lock fence #${r.fence}`); else log("wait", `write → ${r.result || r.error} (readers exclude writers)`); };
+$("#rwRel").onclick = async () => { const r = await post("/api/rw/release", { key: $("#rwRKey").value.trim(), fence: Number($("#rwRFence").value), mode: $("#rwModeSel")?.value || (Number($("#rwRFence").dataset.mode) || "read") }); show("#rwRelOut", r); log("release", `rw release → released=${r.released}`); };
+$("#rwDesc").onclick = async () => { const r = await api("GET", `/api/describe/${encodeURIComponent($("#rwDKey").value.trim())}`); show("#rwDescOut", r); };
+
+/* ── semaphore ───────────────────────────────────────────────────── */
+$("#smGo").onclick = async () => { const r = await post("/api/semaphore/acquire", { key: $("#smKey").value.trim(), max_permits: Number($("#smMax").value) || 3, ttl_ms: Number($("#smTtl").value) }); show("#smOut", r); log(r.result === "acquired" ? "grant" : "wait", `semaphore → ${r.result}${r.fence ? ` fence #${r.fence}` : ""}`); };
+$("#smRel").onclick = async () => { const r = await post("/api/semaphore/release", { key: $("#smRKey").value.trim(), fence: Number($("#smRFence").value) }); show("#smRelOut", r); log("release", `semaphore release → ${r.released}`); };
+$("#smDesc").onclick = async () => { const r = await api("GET", `/api/describe/${encodeURIComponent($("#smKey").value.trim())}`); show("#smOut", r); };
+
+/* ── reentrant ───────────────────────────────────────────────────── */
+$("#reGo").onclick = async () => { const r = await post("/api/reentrant/acquire", { key: $("#reKey").value.trim(), ttl_ms: 5000 }); show("#reOut", r); if (r.owner_id) { $("#reOwner").value = r.owner_id; log("grant", `reentrant acquire owner=${r.owner_id.slice(0,8)}… fence #${r.fence}`); } else log("wait", `reentrant → ${r.error || "held"}`); };
+$("#reRel").onclick = async () => { const r = await post("/api/reentrant/release", { key: $("#reKey").value.trim(), owner_id: $("#reOwner").value.trim(), all: false }); show("#reOut", r); log("release", `reentrant release-one → ${r.released}`); };
+$("#reRelAll").onclick = async () => { const r = await post("/api/reentrant/release", { key: $("#reKey").value.trim(), owner_id: $("#reOwner").value.trim(), all: true }); show("#reOut", r); log("release", `reentrant release-all → ${r.released}`); };
+
+/* ── fair ────────────────────────────────────────────────────────── */
+$("#faGo").onclick = async () => { const r = await post("/api/fair/lock", { key: $("#faKey").value.trim(), ttl_ms: Number($("#faTtl").value) }); show("#faOut", r); if (r.fence) log("grant", `fair grant fence #${r.fence}`); else log("wait", `fair queued → ${r.error || "waiting"}`); };
+$("#faRel").onclick = async () => { const r = await post("/api/fair/release", { key: $("#faRKey").value.trim(), fence: Number($("#faRFence").value) }); show("#faRelOut", r); log("release", `fair release → ${r.released} (next in line gets the handoff)`); };
+
+/* ── multi ───────────────────────────────────────────────────────── */
+$("#muGo").onclick = async () => {
+  const keys = $("#muKeys").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const r = await post("/api/multi/lock", { keys, ttl_ms: Number($("#muTtl").value), wait_ms: Number($("#muWait").value) });
+  show("#muOut", r);
+  if (r.result === "acquired") { $("#muRId").value = r.multi_id; log("grant", `multi acquired ${r.locks.length} keys atomically (id ${r.multi_id.slice(0,8)}…)`); }
+  else log("wait", `multi → ${r.result || r.error}`);
+};
+$("#muRel").onclick = async () => { const r = await post("/api/multi/release", { multi_id: $("#muRId").value.trim() }); show("#muRelOut", r); log("release", `multi release-all → ${r.released}`); };
+
+/* ── latch ───────────────────────────────────────────────────────── */
+$("#lcGo").onclick = async () => { const r = await post("/api/latch/create", { key: $("#lcKey").value.trim(), count: Number($("#lcCount").value) }); show("#lcOut", r); log("ok", `latch created count=${r.count}`); };
+$("#lcdGo").onclick = async () => { const r = await post("/api/latch/count-down", { key: $("#lcdKey").value.trim() }); show("#lcdOut", r); log("ok", `count-down → remaining ${r.count}`); };
+$("#lcqGo").onclick = async () => { const r = await api("GET", `/api/latch/count/${encodeURIComponent($("#lcdKey").value.trim())}`); show("#lcdOut", r); };
+$("#lcwGo").onclick = async () => { log("info","latch wait…"); const r = await post("/api/latch/wait", { key: $("#lcwKey").value.trim(), timeout_ms: Number($("#lcwTo").value) }); show("#lcwOut", r); log(r.zero ? "ok" : "wait", `latch wait → zero=${r.zero}`); };
+
+/* ── semantic ────────────────────────────────────────────────────── */
+$("#sdSet").onclick = async () => { const r = await post("/api/semantic/data", { key: $("#sdKey").value.trim(), field: $("#sdField").value.trim(), value: $("#sdValue").value }); show("#sdOut", r); log("ok", `HSET ${$("#sdKey").value.trim()}.${$("#sdField").value.trim()} = ${$("#sdValue").value}`); };
+$("#sdGet").onclick = async () => { const r = await api("GET", `/api/semantic/data/${encodeURIComponent($("#sdKey").value.trim())}`); show("#sdOut", r); };
+$("#saGo").onclick = async () => {
+  const preds = [{ field: $("#saF1").value.trim(), op: $("#saOp1").value, value: $("#saV1").value.trim() || null }];
+  const f2 = $("#saF2").value.trim();
+  if (f2) preds.push({ field: f2, op: $("#saOp2").value, value: $("#saV2").value.trim() || null });
+  const r = await post("/api/semantic/acquire", { key: $("#saKey").value.trim(), ttl_ms: 5000, predicates: preds });
+  show("#saOut", r);
+  log(r.result === "granted" ? "grant" : "wait", `semantic → ${r.result}${r.fence ? ` fence #${r.fence}` : ""} (predicates evaluated inside the grant script)`);
+};
+
+/* ── testament ───────────────────────────────────────────────────── */
+$("#tsGo").onclick = async () => { const r = await post("/api/testament/set", { key: $("#tsKey").value.trim(), token: $("#tsToken").value.trim(), ttl_ms: Number($("#tsTtl").value), payload: $("#tsPayload").value }); show("#tsOut", r); log("ok", `testament set → stored=${r.stored}`); };
+$("#trGo").onclick = async () => { const r = await api("GET", `/api/testament/${encodeURIComponent($("#trKey").value.trim())}`); show("#trOut", r); log("info", `testament read → ${r.payload ? `"${r.payload}"` : "none"}`); };
+
+/* ── sessions ────────────────────────────────────────────────────── */
+$("#seGo").onclick = async () => { const r = await post("/api/session/register", { client_id: $("#seClient").value.trim(), ttl_ms: Number($("#seTtl").value) }); show("#seOut", r); if (r.session_token) { $("#seHb").value = r.session_token; $("#seCl").value = r.session_token; $("#sbToken").value = r.session_token; log("ok", `session registered ttl=${r.ttl_ms}ms token=${r.session_token.slice(0,8)}…`); } };
+$("#seHbGo").onclick = async () => { const r = await post("/api/session/heartbeat", { key: $("#seHb").value.trim() }); show("#seHbOut", r); log(r.result === "ok" ? "ok" : "wait", `heartbeat → ${r.result}`); };
+$("#seClGo").onclick = async () => { const r = await post("/api/session/close", { key: $("#seCl").value.trim() }); show("#seClOut", r); log("release", `session close → released ${r.released_locks} bound locks`); };
+$("#sbGo").onclick = async () => { const r = await post("/api/lock", { key: $("#sbKey").value.trim(), ttl_ms: 6000, session_token: $("#sbToken").value.trim() }); show("#sbOut", r); log(r.result === "granted" ? "grant" : "error", `session-bound lock → ${r.result} ${r.fence ? `fence #${r.fence}` : r.error || ""}`); };
+
+/* ── watch tab ───────────────────────────────────────────────────── */
+$("#wOpen").onclick = () => { const k = $("#wKey").value.trim(); connectWatch(); log("info", `watch stream → "${k}" (events land in the log)`); };
+$("#wClose").onclick = () => { if (M.ws) { M.ws.close(); M.ws = null; setWs("idle","ws idle"); log("info","watch closed"); } };
+$("#dGo").onclick = async () => { const r = await api("GET", `/api/describe/${encodeURIComponent($("#dKey").value.trim())}`); show("#dOut", r); };
+
+/* ── SPI ─────────────────────────────────────────────────────────── */
 const TIER_COLOR = { NORMAL: "#34d399", ELEVATED: "#fbbf24", CRITICAL: "#fb923c", SIEGE: "#fb7185" };
 async function pollPressure() {
   try {
-    const res = await fetch("/api/pressure");
-    const p = await res.json();
+    const p = await api("GET", "/api/pressure");
     $("#spiValue").textContent = Math.round(p.spi);
     $("#spiArc").setAttribute("stroke-dashoffset", String(251.4 * (1 - p.spi / 100)));
     $("#spiArc").setAttribute("stroke", TIER_COLOR[p.tier] || "#34d399");
-    const tierEl = $("#spiTier");
-    tierEl.textContent = p.tier;
-    tierEl.style.color = TIER_COLOR[p.tier] || "";
-  } catch (_) { /* ignore transient */ }
+    $("#spiTier").textContent = p.tier; $("#spiTier").style.color = TIER_COLOR[p.tier] || "";
+  } catch (_) {}
 }
 setInterval(pollPressure, 1200);
 
-/* ── controls wiring ───────────────────────────────────────────────── */
-$("#addWorkerBtn").onclick = () => { addWorker(); };
-$("#rmWorkerBtn").onclick = removeWorker;
-
-$("#setKeyBtn").onclick = () => {
-  const v = $("#keyInput").value.trim();
-  if (!v) return;
-  // Release anything still held under the old key so nothing leaks.
-  for (const w of S.workers) {
-    stopRetry(w);
-    if (w.status === "held" && w.token) post("/api/unlock", { key: S.key, token: w.token });
-    setStatus(w, "idle");
-  }
-  S.key = v;
-  $("#currentKey").textContent = v;
-  log("info", `switching competition key → "${v}"`);
-  connectWatch();
-  refreshKeyState();
-};
-$("#keyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#setKeyBtn").click(); });
-
-$("#chaosBtn").onclick = () => {
-  S.chaos = !S.chaos;
-  const b = $("#chaosBtn");
-  b.className = S.chaos
-    ? "px-3 py-1.5 text-sm rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 transition-colors"
-    : "px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 transition-colors";
-  if (S.chaos) {
-    log("info", "chaos mode ON — random acquires/releases");
-    S.chaosTimer = setInterval(() => {
-      if (!S.workers.length) return;
-      const w = S.workers[Math.floor(Math.random() * S.workers.length)];
-      if (w.status === "idle") acquireClick(w);
-      else if (w.status === "held" && Math.random() < 0.6) releaseClick(w);
-    }, 650);
-  } else {
-    clearInterval(S.chaosTimer);
-    log("info", "chaos mode OFF");
-  }
-};
-
-/* ── boot ──────────────────────────────────────────────────────────── */
-addWorker(); addWorker(); addWorker();
-connectWatch();
-refreshKeyState();
-pollPressure();
-log("info", `demo ready · competing for "${S.key}"`);
+/* ── boot ────────────────────────────────────────────────────────── */
+mAdd(); mAdd(); mAdd();
+connectWatch(); refreshKey(); pollPressure();
+log("info", "console ready — every tab talks to the real backend");
 </script>
 </body>
 </html>

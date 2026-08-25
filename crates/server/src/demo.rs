@@ -32,8 +32,8 @@ use axum::{Json, Router};
 use palisade_core::{Error, LockHandle, OwnerId, SafetyPolicy};
 use palisade_proto::lock_event;
 use palisade_redis::{
-    FairLockHandle, MultiLockHandle, ReentrantLockHandle, RedisConfig, RedisCountDownLatch,
-    RedisLockManager, RedisSemaphore, RwReadHandle, RwWriteHandle, SemaphorePermit,
+    FairLockHandle, MultiLockHandle, RedisConfig, RedisCountDownLatch, RedisLockManager,
+    RedisSemaphore, ReentrantLockHandle, RwReadHandle, RwWriteHandle, SemaphorePermit,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
@@ -550,6 +550,9 @@ pub struct ReentrantAcquireRequest {
     pub key: String,
     /// Lease duration in milliseconds.
     pub ttl_ms: Option<u64>,
+    /// Owner identity from a previous acquire — the SAME owner re-enters
+    /// freely (hold count incremented); omit to mint a new owner.
+    pub owner_id: Option<String>,
 }
 
 /// `POST /api/reentrant/acquire` response.
@@ -566,17 +569,30 @@ async fn reentrant_acquire(
     Json(req): Json<ReentrantAcquireRequest>,
 ) -> Result<Json<ReentrantAcquireResponse>, ApiError> {
     let opts = palisade_core::LockOptions::default().with_ttl(clamp_ttl(req.ttl_ms));
-    let owner = OwnerId::generate();
+    let owner = match &req.owner_id {
+        Some(id) => {
+            let uuid = uuid::Uuid::parse_str(id).map_err(|_| {
+                ApiError(
+                    StatusCode::BAD_REQUEST,
+                    format!("owner_id `{id}` is not a valid uuid"),
+                )
+            })?;
+            OwnerId::from_uuid(uuid)
+        }
+        None => OwnerId::generate(),
+    };
     let handle = state
         .manager
         .try_lock_reentrant(&req.key, owner, &opts)
         .await?;
     let owner_id = handle.owner().as_uuid().to_string();
     let fence = handle.fence().value();
-    state.live.reentrant.lock().expect("reentrant map").insert(
-        format!("{}|{owner_id}", req.key),
-        handle,
-    );
+    state
+        .live
+        .reentrant
+        .lock()
+        .expect("reentrant map")
+        .insert(format!("{}|{owner_id}", req.key), handle);
     Ok(Json(ReentrantAcquireResponse { owner_id, fence }))
 }
 
@@ -632,47 +648,61 @@ pub struct RwAcquireRequest {
     pub ttl_ms: Option<u64>,
 }
 
-/// `POST /api/rw/*` grant response.
+/// `POST /api/rw/*` outcome.
 #[derive(Debug, Serialize)]
-pub struct RwAcquireResponse {
-    /// Fencing token; pass it back to release.
-    pub fence: u64,
-}
-
-fn rw_map_key(key: &str, fence: u64) -> String {
-    format!("{key}|{fence}")
+#[serde(tag = "result")]
+pub enum RwOutcome {
+    /// Grant succeeded.
+    #[serde(rename = "acquired")]
+    Acquired {
+        /// Fencing token; pass it back to release.
+        fence: u64,
+    },
+    /// Incompatible holders present (writer while readers, etc.).
+    #[serde(rename = "held")]
+    Held,
 }
 
 async fn rw_read(
     State(state): State<DemoState>,
     Json(req): Json<RwAcquireRequest>,
-) -> Result<Json<RwAcquireResponse>, ApiError> {
+) -> Result<Json<RwOutcome>, ApiError> {
     let opts = palisade_core::LockOptions::default().with_ttl(clamp_ttl(req.ttl_ms));
-    let handle = state.manager.try_read(&req.key, &opts).await?;
-    let fence = handle.fence().value();
-    state
-        .live
-        .rw_read
-        .lock()
-        .expect("rw read map")
-        .insert(rw_map_key(&req.key, fence), handle);
-    Ok(Json(RwAcquireResponse { fence }))
+    match state.manager.try_read(&req.key, &opts).await {
+        Ok(handle) => {
+            let fence = handle.fence().value();
+            state
+                .live
+                .rw_read
+                .lock()
+                .expect("rw read map")
+                .insert(rw_map_key(&req.key, fence), handle);
+            Ok(Json(RwOutcome::Acquired { fence }))
+        }
+        Err(Error::Held { .. }) => Ok(Json(RwOutcome::Held)),
+        Err(e) => Err(ApiError::from(e)),
+    }
 }
 
 async fn rw_write(
     State(state): State<DemoState>,
     Json(req): Json<RwAcquireRequest>,
-) -> Result<Json<RwAcquireResponse>, ApiError> {
+) -> Result<Json<RwOutcome>, ApiError> {
     let opts = palisade_core::LockOptions::default().with_ttl(clamp_ttl(req.ttl_ms));
-    let handle = state.manager.try_write(&req.key, &opts).await?;
-    let fence = handle.fence().value();
-    state
-        .live
-        .rw_write
-        .lock()
-        .expect("rw write map")
-        .insert(rw_map_key(&req.key, fence), handle);
-    Ok(Json(RwAcquireResponse { fence }))
+    match state.manager.try_write(&req.key, &opts).await {
+        Ok(handle) => {
+            let fence = handle.fence().value();
+            state
+                .live
+                .rw_write
+                .lock()
+                .expect("rw write map")
+                .insert(rw_map_key(&req.key, fence), handle);
+            Ok(Json(RwOutcome::Acquired { fence }))
+        }
+        Err(Error::Held { .. }) => Ok(Json(RwOutcome::Held)),
+        Err(e) => Err(ApiError::from(e)),
+    }
 }
 
 /// `POST /api/rw/release` body.
@@ -693,7 +723,12 @@ async fn rw_release(
     let map_key = rw_map_key(&req.key, req.fence);
     match req.mode.as_str() {
         "read" => {
-            let h = state.live.rw_read.lock().expect("rw read map").remove(&map_key);
+            let h = state
+                .live
+                .rw_read
+                .lock()
+                .expect("rw read map")
+                .remove(&map_key);
             match h {
                 Some(h) => {
                     h.release().await?;
@@ -752,6 +787,10 @@ pub enum SemaphoreOutcome {
     /// All permits are in use.
     #[serde(rename = "full")]
     Full,
+}
+
+fn rw_map_key(key: &str, fence: u64) -> String {
+    format!("{key}|{fence}")
 }
 
 async fn semaphore_acquire(
@@ -941,7 +980,12 @@ async fn multi_release(
     State(state): State<DemoState>,
     Json(req): Json<MultiReleaseRequest>,
 ) -> Result<Json<ReleasedResponse>, ApiError> {
-    let handle = state.live.multi.lock().expect("multi map").remove(&req.multi_id);
+    let handle = state
+        .live
+        .multi
+        .lock()
+        .expect("multi map")
+        .remove(&req.multi_id);
     match handle {
         Some(h) => {
             h.release_all().await?;
@@ -1133,10 +1177,19 @@ async fn semantic_acquire(
         }
         Err(Error::Held { .. }) => {
             state.observe(started, true, true);
-            Ok(Json(SemanticOutcome::Held))
+            // The library script returns {0,0} for both "lock exists" and
+            // "predicates failed" — distinguish via a describe probe.
+            let (held, _, _) = state.manager.describe_key(&req.key).await?;
+            if held {
+                Ok(Json(SemanticOutcome::Held))
+            } else {
+                Ok(Json(SemanticOutcome::PredicatesFailed))
+            }
         }
-        Err(e) if e.to_string().contains("predicate") => Ok(Json(SemanticOutcome::PredicatesFailed)),
-        Err(e) => Err(ApiError::from(e)),
+        Err(e) => {
+            state.observe(started, false, false);
+            Err(ApiError::from(e))
+        }
     }
 }
 
@@ -1323,7 +1376,9 @@ async fn session_close(
     Json(req): Json<LatchKeyRequest>, // { key } reused as { session_token }
 ) -> Json<SessionCloseResponse> {
     let released = state.sessions.close(&req.key).await;
-    Json(SessionCloseResponse { released_locks: released })
+    Json(SessionCloseResponse {
+        released_locks: released,
+    })
 }
 
 // ---------------------------------------------------------------------------
