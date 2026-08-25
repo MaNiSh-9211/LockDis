@@ -1,6 +1,6 @@
 # Palisade
 
-![Palisade logo](crates/server/assets/images/Palisade.png)
+![Palisade logo](crates/server/assets/images/Palisade_minimal.svg)
 
 [![CI](https://github.com/MaNiSh-9211/Palisade/actions/workflows/ci.yml/badge.svg)](https://github.com/MaNiSh-9211/Palisade/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT_OR_Apache--2.0-blue.svg)](LICENSE-MIT)
