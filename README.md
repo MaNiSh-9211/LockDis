@@ -55,12 +55,31 @@ docker run -d --name palisade-redis -p 6379:6379 redis:7-alpine
 cargo run -p palisade-server --bin palisade-demo -- --listen 127.0.0.1:8080
 ```
 
-Open **http://localhost:8080** — a grid of workers competing for one lock,
-live fencing-token timeline, contention indicator, and a Store Pressure
-Index gauge. Hit *Chaos* and watch leases expire, fences climb, and stale
-holders get marked LOST in real time. The gRPC server (`palisade-server`)
-and the demo binary share the same Lua-guarded backend; the demo adds no
-locking semantics of its own (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+Open **http://localhost:8080** — a tabbed test console where *every*
+Palisade feature is testable from the browser, all against real Redis
+and the same Lua-guarded scripts the gRPC server uses:
+
+| Tab | What you can exercise |
+|---|---|
+| Mutex | Worker grid, contention, TTL expiry, watchdog, safety policies, chaos mode, fence timeline |
+| Extend · Admin | Ownership-checked renewal, force-unlock, prefix SCAN |
+| Read-Write | Concurrent readers, writer exclusion |
+| Semaphore | Permit limits and release |
+| Reentrant | Same-owner re-entry, hold counts |
+| Fair FIFO | Queue ordering, handoff-on-release |
+| Multi-lock | Atomic all-or-nothing across keys |
+| Latch | NX-create, countdown, wait-until-zero |
+| Semantic | Predicates (`gt`/`eq`/`absent`) evaluated inside the grant |
+| Testament | Deathbed payload handoff to the successor |
+| Sessions | Register/heartbeat/close, sweeper releasing dead sessions' locks |
+
+A shared event log and Store Pressure Index gauge react in real time.
+The demo adds **no locking semantics of its own** — every mutation runs
+the identical Lua scripts (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+
+Prefer containers? `docker build -f Dockerfile.demo -t palisade-demo .`
+then `docker run --rm -p 8080:8080 palisade-demo` (point it at your Redis
+with `PALISADE_REDIS_URL`).
 
 ## Crates
 
@@ -76,7 +95,18 @@ locking semantics of its own (see [ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ## Primitives
 
-Mutex · Reentrant · Read-Write · Semaphore · Fair FIFO · Multi-Lock · CountDownLatch · **Semantic Locks**
+| Primitive | One-liner |
+|---|---|
+| Mutex | Fenced mutual exclusion with optional watchdog renewal |
+| Reentrant | Same-owner re-entry with hold counts |
+| Read-Write | Concurrent readers, exclusive writers |
+| Semaphore | ZSET permits scored by Redis-side expiry instants |
+| Fair FIFO | Arrival-ordered grants with handoff-on-release |
+| Multi-Lock | Atomic all-or-nothing across keys with rollback |
+| CountDownLatch | NX-initialized countdown barrier |
+| **Semantic Locks** | Business predicates evaluated atomically *inside* the grant script |
+
+All of the above are exercisable from the [web demo](#see-it-live-in-60-seconds).
 
 ## Backends
 
