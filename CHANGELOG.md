@@ -2,6 +2,24 @@
 
 All notable changes to Palisade are documented here.
 
+## [0.3.1] — 2026-08-25
+
+### Added
+- **Web demo binary** (`palisade-demo`): axum HTTP + WebSocket façade over the same Lua-guarded Redis backend, served at `/` with an embedded single-page frontend (vanilla JS + Tailwind CDN, no build step). No new locking semantics — same Lua scripts, same pass-through safety model (ADR 0021).
+- REST endpoints: `POST /api/lock`, `POST /api/unlock`, `GET /api/describe/{key}`, `GET /api/locks?prefix=`, `GET /api/pressure` (Store Pressure Index).
+- WebSocket `/api/watch/{key}` streaming anonymized, level-triggered versioned events via the shared WatchHub (ADR 0029).
+- ADR 0026 written (consensus-core etcd backend).
+- LICENSE-MIT + LICENSE-APACHE files; README badge fixed; docs links repaired.
+
+### Documentation
+- Merged duplicate `## Documentation` sections in README; added live demo quickstart.
+- Fixed broken relative links in `docs/TUTORIAL.md`.
+- ARCHITECTURE.md: corrected crate graph (PROTO has no CORE edge; CLIENT → TESTING edge added), fixed semantic acquire sequence (no `acquire_where.lua`), corrected chaos suite description, added Web Demo Surface section with accurate data-flow diagram.
+
+### Fixed
+- Clippy lint in `crates/redis/examples/demo.rs` (needless borrow).
+- Missing LICENSE files at repo root.
+
 ## [0.3.0] — 2026-08-22
 
 ### Added

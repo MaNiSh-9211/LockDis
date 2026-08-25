@@ -1,7 +1,7 @@
 # Palisade
 
 [![CI](https://github.com/MaNiSh-9211/LockDis/actions/workflows/ci.yml/badge.svg)](https://github.com/MaNiSh-9211/LockDis/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT_OR_Apache--2.0-blue.svg)](LICENSE)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT_OR_Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 [![Safety: no unsafe](https://img.shields.io/badge/unsafe-forbidden-red.svg)](https://github.com/MaNiSh-9211/LockDis)
 
@@ -44,6 +44,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## See it live in 60 seconds
+
+```sh
+docker run -d --name palisade-redis -p 6379:6379 redis:7-alpine
+cargo run -p palisade-server --bin palisade-demo -- --listen 127.0.0.1:8080
+```
+
+Open **http://localhost:8080** — a grid of workers competing for one lock,
+live fencing-token timeline, contention indicator, and a Store Pressure
+Index gauge. Hit *Chaos* and watch leases expire, fences climb, and stale
+holders get marked LOST in real time. The gRPC server (`palisade-server`)
+and the demo binary share the same Lua-guarded backend; the demo adds no
+locking semantics of its own (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+
 ## Crates
 
 | Crate | Purpose |
@@ -52,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `palisade-redis` | Redis + Redlock backends: all primitives, Lua-guarded |
 | `palisade-etcd` | etcd consensus backend: MVCC transactions, server-side leases |
 | `palisade-proto` | Protobuf contract + tonic codegen |
-| `palisade-server` | gRPC service: mTLS, authz, sessions, health/drain, Prometheus |
+| `palisade-server` | gRPC service (mTLS, authz, sessions, health/drain, Prometheus) + web demo binary |
 | `palisade-client` | SDK: gRPC client with watchdog, watch streams, bearer/proxy auth |
 | `palisade-testing` | Deterministic simulation, invariant checker, property tests |
 
@@ -82,21 +96,12 @@ CI enforces all four gates against live Redis + etcd containers.
 
 ## Documentation
 
-- [PLAN.md](PLAN.md) — architecture and roadmap
-- [ROADMAP.md](ROADMAP.md) — V2 completion status
-- [docs/decisions/](docs/decisions/README.md) — 31 Architecture Decision Records
-- [docs/EDGE_CASES.md](docs/EDGE_CASES.md) — failure mode catalog with dispositions
-- [docs/fencing-guide.md](docs/fencing-guide.md) — how to actually use fencing tokens
-- [docs/durability.md](docs/durability.md) — per-backend restart behavior
-- [docs/performance.md](docs/performance.md) — benchmark numbers
-- [docs/integrations.md](docs/integrations.md) — gateway/UAM/Grafana wiring
-
-## Documentation
-
 | Guide | Audience |
 |---|---|
 | [Tutorial](docs/TUTORIAL.md) | Your first lock in 5 minutes |
 | [Architecture](ARCHITECTURE.md) | System design with diagrams |
+| [PLAN.md](PLAN.md) | Original architecture and roadmap |
+| [ROADMAP.md](ROADMAP.md) | V2 completion status |
 | [Comparison](docs/COMPARISON.md) | vs Redisson, ZooKeeper, etcd, Consul |
 | [Fencing Guide](docs/fencing-guide.md) | How to actually use fence tokens |
 | [Edge Cases](docs/EDGE_CASES.md) | 40+ failure modes catalogued |
@@ -109,4 +114,5 @@ CI enforces all four gates against live Redis + etcd containers.
 
 ## License
 
-MIT OR Apache-2.0
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at
+your option — the standard Rust ecosystem arrangement.

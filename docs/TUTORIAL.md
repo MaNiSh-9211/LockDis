@@ -74,6 +74,6 @@ let h = mgr.acquire_where("orders/42")
 
 ## Next Steps
 
-- Read [docs/fencing-guide.md](docs/fencing-guide.md) to protect downstream writes
+- Read [docs/fencing-guide.md](fencing-guide.md) to protect downstream writes
 - Run `cargo run -p palisade-redis --example leader_election` for a real demo
-- See [docs/EDGE_CASES.md](docs/EDGE_CASES.md) for what can go wrong and how Palisade handles it
+- See [docs/EDGE_CASES.md](EDGE_CASES.md) for what can go wrong and how Palisade handles it
