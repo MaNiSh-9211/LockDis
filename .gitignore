@@ -2,3 +2,9 @@
 **/*.rs.bk
 instructions.txt.txt
 .cargo/
+
+# --- security: local env & deps ---
+.env
+.env.*
+!*.env.example
+node_modules/
